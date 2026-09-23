@@ -1,0 +1,10 @@
+node_modules/
+data/store.json
+data/store.json.tmp
+.claude/skills/run-amazon-pc-builder/shots/
+
+# Documentación e investigación (solo local)
+/*.md
+!/README.md
+/Guía de Instalación PC Bridge/
+/.claude/
