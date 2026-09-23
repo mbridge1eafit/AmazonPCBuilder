@@ -1,0 +1,17 @@
+{
+  "name": "amazon-pc-builder",
+  "version": "1.0.0",
+  "description": "Armador de PC con precios y envío a Colombia leídos con tu sesión de amazon.com",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "cheerio": "^1.0.0"
+  }
+}
