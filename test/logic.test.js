@@ -28,6 +28,10 @@ test('detecta socket, memoria y formato', () => {
   assert.equal(detectTags(mk('AMD Ryzen 5 9600X'), 'cpu').socket, 'AM5');
   const mb = detectTags(mk('MSI MAG B850 Tomahawk WiFi ATX'), 'motherboard');
   assert.deepEqual([mb.socket, mb.memType, mb.formFactor], ['AM5', 'DDR5', 'ATX']);
+  const tomahawk = detectTags(mk('MSI MAG B850 Tomahawk WiFi ATX', {
+    bullets: ['TRIPLE M.2 CONNECTORS - Storage options include 1 x M.2 Gen5 x4 128Gbps slot and 2 x M.2 Gen4 x4 64Gbps slots;']
+  }), 'motherboard');
+  assert.equal(tomahawk.m2Slots, 3);
   assert.equal(detectTags(mk('ASUS TUF B550M-PLUS Micro-ATX DDR4'), 'motherboard').formFactor, 'Micro-ATX');
   assert.equal(detectTags(mk('ARCTIC P12 PWM PST (5 Pack) - Ventiladores'), 'fans').count, 5);
   assert.equal(detectTags(mk('Thermalright Ventilador de CPU TL-C12C X3, ventilador'), 'fans').count, 3);
