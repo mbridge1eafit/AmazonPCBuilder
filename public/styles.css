@@ -428,3 +428,195 @@ details.acc.bl .acc-meta { font-weight: 500; }
 .ci-total .ct-btn { font-size: 13.5px; }
 .bl-list .ct-btn { font-weight: 500; }
 @media (max-width: 640px) { .pricebox .ct-pop { left: 0; right: auto; } .ct-pop { width: min(250px, calc(100vw - 48px)); } }
+
+/* ---------- modal y barra de resumen de cambios tras actualizar ---------- */
+.changes-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+}
+.changes-head {
+  justify-content: space-between;
+  align-items: center;
+}
+.changes-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.changes-body {
+  max-height: calc(85vh - 140px);
+  overflow-y: auto;
+  gap: 14px;
+}
+.changes-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.kpi-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-card.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.kpi-card.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.kpi-card.accent { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.kpi-val { font-size: 19px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi-lbl { font-size: 11.5px; color: var(--muted); }
+
+.changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.change-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.change-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.change-title {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  flex: 1 1 200px;
+}
+.change-title:hover { text-decoration: underline; color: var(--accent); }
+.change-card-main {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.change-thumb {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.change-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.change-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.change-label {
+  color: var(--muted);
+  min-width: 130px;
+  font-size: 12.5px;
+}
+.change-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.prev-val {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-variant-numeric: tabular-nums;
+}
+.curr-val {
+  font-variant-numeric: tabular-nums;
+}
+.diff-badge {
+  font-size: 11.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.diff-badge.drop {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.diff-badge.rise {
+  background: var(--err-soft);
+  color: var(--err);
+}
+.change-target-hit {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.changes-foot {
+  align-items: center;
+}
+
+/* Floating minimized dock */
+.changes-dock {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: 30px;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 25%);
+  padding: 6px 12px 6px 16px;
+  animation: dock-in .25s ease;
+}
+@keyframes dock-in {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.changes-dock-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.changes-dock-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.changes-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 640px) {
+  .changes-dock {
+    width: calc(100vw - 32px);
+    left: 16px;
+    transform: none;
+    border-radius: 14px;
+    padding: 8px 12px;
+  }
+  .changes-dock-inner {
+    justify-content: space-between;
+  }
+}
