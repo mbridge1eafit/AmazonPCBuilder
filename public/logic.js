@@ -129,6 +129,24 @@ function formFactorFrom(t) {
   return null;
 }
 
+function m2SlotsFrom(t) {
+  if (/\b(?:triple|three)\s+(?:connectors?|slots?|ranuras?|puertos?)?\s*M\.2\b/i.test(t) || /\bM\.2\s+(?:triple)\b/i.test(t)) return 3;
+  if (/\b(?:quad(?:ruple)?|four)\s+(?:connectors?|slots?|ranuras?|puertos?)?\s*M\.2\b/i.test(t)) return 4;
+  if (/\b(?:dual|two)\s+(?:connectors?|slots?|ranuras?|puertos?)?\s*M\.2\b/i.test(t)) return 2;
+  if (/\b(?:five)\s+(?:connectors?|slots?|ranuras?|puertos?)?\s*M\.2\b/i.test(t)) return 5;
+  const total = t.match(/(\d)\s?(?:x|×)?\s*M\.2\s*(?:slots?|sockets?|connectors?|ranuras?|puertos?)\b/i)
+    || t.match(/(\d)\s*(?:ranuras?|puertos?|slots?)\s*M\.2\b/i)
+    || t.match(/hasta\s*(\d)\s*M\.2\b/i);
+  if (total) return Number(total[1]);
+  const genMatches = [...t.matchAll(/(\d)\s?(?:x|×)\s?M\.2(?:\s?Gen\s?\d|\s?PCIe|\s?NVMe)?\s*(?:x\d)?\s*(?:slots?|ranuras?)?/gi)];
+  if (genMatches.length > 1) {
+    const sum = genMatches.reduce((acc, m) => acc + Number(m[1]), 0);
+    if (sum > 0 && sum <= 8) return sum;
+  }
+  const standard = t.match(/(\d)\s?(?:x|×)\s?M\.2/i) || t.match(/(\d)\s?ranuras? M\.2/i);
+  return standard ? Number(standard[1]) : null;
+}
+
 const num = (m) => (m ? Number(m[1]) : null);
 
 // Detecta specs relevantes para compatibilidad desde título/specs. `p.tags` del usuario tiene prioridad.
@@ -153,7 +171,7 @@ export function detectTags(p, cat) {
   if (cat === 'motherboard' || cat === 'ram') auto.memType = (t.match(/\b(DDR5|DDR4)\b/i) || [])[1]?.toUpperCase() || (cat === 'motherboard' && ['AM5', 'LGA1851'].includes(auto.socket) ? 'DDR5' : null);
   if (cat === 'motherboard') {
     auto.formFactor = formFactorFrom(tt) || formFactorFrom(t);
-    auto.m2Slots = num(t.match(/(\d)\s?(?:x|×)\s?M\.2/i)) ?? num(t.match(/(\d)\s?ranuras? M\.2/i));
+    auto.m2Slots = m2SlotsFrom(t);
     auto.sataPorts = num(t.match(/(\d)\s?(?:x|×)?\s?(?:puertos\s)?SATA/i));
   }
   if (cat === 'case') {
