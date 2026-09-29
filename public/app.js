@@ -172,20 +172,75 @@ const productsByAsin = (asin) => store.builds.flatMap((b) => Object.values(b.par
 // Pide a la sesión una lista de ASIN (sin duplicados) y reescribe cada producto al llegar su ficha.
 async function updateAsins(asins) {
   const list = [...new Set(asins.filter(Boolean))];
-  const r = { ok: 0, failed: 0, changed: 0, errors: [], kept: new Set(), replaced: new Set() };
+  const r = { ok: 0, failed: 0, changed: 0, errors: [], kept: new Set(), replaced: new Set(), changes: [] };
   list.forEach((a) => busyAsins.add(a));
   scheduleRender();
   await Promise.all(list.map(async (asin) => {
     try {
       const d = toUSD(sanitizeIncoming(await sendJob(asin)));
       for (const p of productsByAsin(asin)) {
-        const before = p.price;
+        const prev = {
+          price: p.price,
+          shipping: p.shipping,
+          importFees: p.importFees,
+          total: p.total,
+          availability: p.availability,
+          shipsToCO: p.shipsToCO,
+          seller: p.seller,
+        };
         const res = applySession(p, structuredClone(d));
         res.keptEdits.forEach((k) => r.kept.add(k));
         res.replacedEdits.forEach((k) => r.replaced.add(k));
         if (res.keptEdits.length) r.keptProducts = (r.keptProducts || 0) + 1;
         if (res.replacedEdits.length) r.replacedProducts = (r.replacedProducts || 0) + 1;
-        if (before != null && before !== p.price) r.changed++;
+        if (prev.price != null && prev.price !== p.price) r.changed++;
+
+        const priceChanged = prev.price !== p.price;
+        const shippingChanged = prev.shipping !== p.shipping;
+        const importFeesChanged = prev.importFees !== p.importFees;
+        const availabilityChanged = prev.availability !== p.availability;
+        const shipsToCOChanged = prev.shipsToCO !== p.shipsToCO;
+        const sellerChanged = prev.seller !== p.seller;
+        const targetHit = (p.targetPrice != null && p.price != null && p.price <= p.targetPrice && (prev.price == null || prev.price > p.targetPrice));
+        const hasAnyChange = priceChanged || shippingChanged || importFeesChanged || availabilityChanged || shipsToCOChanged || sellerChanged || targetHit || res.replacedEdits.length > 0;
+
+        if (hasAnyChange && !r.changes.some((c) => c.asin === asin)) {
+          let cat = 'accessories';
+          for (const c of CATEGORIES) {
+            if (slot(c.key).options.some((o) => o.id === p.id)) { cat = c.key; break; }
+          }
+          r.changes.push({
+            asin,
+            id: p.id,
+            cat,
+            catName: CAT[cat]?.name || 'Accesorio',
+            title: p.title,
+            image: p.image,
+            url: p.url,
+            prev,
+            curr: {
+              price: p.price,
+              shipping: p.shipping,
+              importFees: p.importFees,
+              total: p.total,
+              availability: p.availability,
+              shipsToCO: p.shipsToCO,
+              seller: p.seller,
+            },
+            priceChanged,
+            priceDiff: (prev.price != null && p.price != null) ? +(p.price - prev.price).toFixed(2) : null,
+            priceDiffPct: (prev.price != null && p.price != null && prev.price > 0) ? +(((p.price - prev.price) / prev.price) * 100).toFixed(1) : null,
+            shippingChanged,
+            importFeesChanged,
+            availabilityChanged,
+            shipsToCOChanged,
+            sellerChanged,
+            targetHit,
+            targetPrice: p.targetPrice,
+            keptEdits: res.keptEdits,
+            replacedEdits: res.replacedEdits,
+          });
+        }
       }
       r.ok++;
     } catch (e) {
@@ -216,6 +271,7 @@ async function updateOne(cat, id) {
   if (r.replaced.size) return toast(`Tu sesión encontró precio con envío a Colombia (${usd(p.price)}): se reemplazaron tus ediciones (${editedLabels([...r.replaced])}).`, false, 8000);
   const miss = missingFields(p);
   toast(before != null && p.price !== before ? `Precio cambió: ${usd(before)} → ${usd(p.price)}` : miss.length ? `Actualizado; Amazon no mostró: ${miss.join(', ')}` : 'Actualizado con tu sesión');
+  if (r.changes?.length && !modal.open) openChangesModal(r);
 }
 
 // Productos de Amazon del armado activo (cualquier estado, incluidos los comprados).
@@ -243,6 +299,7 @@ async function refreshAll() {
   const skipped = all.length - todo.length;
   const incomplete = refreshQueue().all.filter(({ p }) => missingFields(p).length).length;
   toast([`Actualizados ${r.ok}/${asins.length} con tu sesión`, skipped && `${skipped} omitidos (leídos hace < ${s.refreshMinutes} min)`, `${r.changed} cambiaron de precio`, r.keptProducts && `${r.keptProducts} con ediciones conservadas (sin precio con envío a Colombia)`, r.replacedProducts && `${r.replacedProducts} con ediciones reemplazadas por Amazon`, r.failed && `${r.failed} con error: ${r.errors[0]}`, incomplete && `${incomplete} con datos que Amazon no muestra`].filter(Boolean).join(' · '), !!r.failed, 8000);
+  if (r.changes?.length) openChangesModal(r);
 }
 
 // El marcador lleva el código embebido: si el conector cambió, hay que reinstalarlo.
@@ -882,6 +939,232 @@ const modal = $('#modal');
 function openModal(html) { $('#modalBody').innerHTML = html; if (!modal.open) modal.showModal(); }
 function closeModal() { modal.close(); }
 
+// ---------- modal y dock de resumen de cambios ----------
+const changesModal = $('#changesModal');
+const changesDock = $('#changesDock');
+let currentChanges = null;
+
+function renderChangesSummaryHtml(r) {
+  const changes = r.changes || [];
+  const drops = changes.filter((c) => c.priceDiff != null && c.priceDiff < 0);
+  const rises = changes.filter((c) => c.priceDiff != null && c.priceDiff > 0);
+  const targets = changes.filter((c) => c.targetHit);
+  const shipChanges = changes.filter((c) => c.shippingChanged || c.shipsToCOChanged);
+
+  const dateStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  const title = `Resumen de cambios tras la actualización`;
+  const sub = `${changes.length} producto${changes.length === 1 ? '' : 's'} con cambios de ${r.ok || changes.length} consultado${(r.ok || changes.length) === 1 ? '' : 's'} · ${dateStr}`;
+
+  return `
+    <div class="m-head changes-head">
+      <div>
+        <h2 id="changesModalTitle">📋 ${title}</h2>
+        <div class="muted small" style="margin-top:3px">${sub}</div>
+      </div>
+      <div class="changes-head-actions">
+        <button type="button" class="btn ghost small" data-action="minimize-changes" title="Minimizar a barra inferior" aria-label="Minimizar">🗕 Minimizar</button>
+        <button type="button" class="btn ghost small" data-action="close-changes" title="Cerrar y descartar resumen" aria-label="Cerrar">✕</button>
+      </div>
+    </div>
+
+    <div class="m-body changes-body">
+      <div class="changes-kpis">
+        <div class="kpi-card">
+          <span class="kpi-val">${changes.length}</span>
+          <span class="kpi-lbl">Productos con cambios</span>
+        </div>
+        ${drops.length ? `
+          <div class="kpi-card ok">
+            <span class="kpi-val">↓ ${drops.length}</span>
+            <span class="kpi-lbl">Bajaron de precio</span>
+          </div>
+        ` : ''}
+        ${rises.length ? `
+          <div class="kpi-card warn">
+            <span class="kpi-val">↑ ${rises.length}</span>
+            <span class="kpi-lbl">Subieron de precio</span>
+          </div>
+        ` : ''}
+        ${targets.length ? `
+          <div class="kpi-card accent">
+            <span class="kpi-val">🎯 ${targets.length}</span>
+            <span class="kpi-lbl">Meta alcanzada</span>
+          </div>
+        ` : ''}
+        ${shipChanges.length ? `
+          <div class="kpi-card">
+            <span class="kpi-val">🚚 ${shipChanges.length}</span>
+            <span class="kpi-lbl">Cambios en envío</span>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="changes-list">
+        ${changes.map((c) => `
+          <div class="change-card">
+            <div class="change-card-top">
+              <span class="chip">${esc(c.catName)}</span>
+              <a href="${esc(c.url || '#')}" target="_blank" rel="noopener" class="change-title" title="Ver en Amazon">
+                ${esc(c.title)}
+              </a>
+              <span class="muted small num">${esc(c.asin)}</span>
+            </div>
+
+            <div class="change-card-main">
+              ${c.image ? `<img src="${esc(c.image)}" alt="" class="change-thumb" loading="lazy">` : ''}
+              <div class="change-details">
+                ${c.targetHit ? `
+                  <div class="change-target-hit">
+                    🎯 <strong>¡Precio objetivo alcanzado!</strong> Está en ${usd(c.curr.price)} (tu meta era ≤ ${usd(c.targetPrice)})
+                  </div>
+                ` : ''}
+
+                ${c.priceChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">Precio:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${c.prev.price != null ? usd(c.prev.price) : 'Sin precio'}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val">${c.curr.price != null ? usd(c.curr.price) : 'No disponible'}</strong>
+                      ${c.priceDiff != null ? (
+                        c.priceDiff < 0
+                          ? `<span class="diff-badge drop">↓ ${usd(Math.abs(c.priceDiff))} (${c.priceDiffPct}%)</span>`
+                          : `<span class="diff-badge rise">↑ +${usd(c.priceDiff)} (+${c.priceDiffPct}%)</span>`
+                      ) : (c.curr.price != null ? `<span class="diff-badge drop">Disponible</span>` : `<span class="diff-badge rise">Sin precio</span>`)}
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.shippingChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">Envío a Colombia:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${c.prev.shipping == null ? 'Sin datos' : c.prev.shipping === 0 ? 'Gratis' : usd(c.prev.shipping)}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val">${c.curr.shipping == null ? 'Sin datos' : c.curr.shipping === 0 ? 'Gratis' : usd(c.curr.shipping)}</strong>
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.importFeesChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">Cargos importación:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${c.prev.importFees == null ? 'Sin datos' : usd(c.prev.importFees)}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val">${c.curr.importFees == null ? 'Sin datos' : usd(c.curr.importFees)}</strong>
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.shipsToCOChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">¿Envía a Colombia?:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${c.prev.shipsToCO ? 'Sí' : 'No'}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val" style="color:var(${c.curr.shipsToCO ? '--ok' : '--err'})">${c.curr.shipsToCO ? 'Sí' : 'No'}</strong>
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.availabilityChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">Disponibilidad:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${esc(c.prev.availability || 'Sin datos')}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val">${esc(c.curr.availability || 'Sin datos')}</strong>
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.sellerChanged ? `
+                  <div class="change-row">
+                    <span class="change-label">Vendedor:</span>
+                    <div class="change-val">
+                      <span class="prev-val">${esc(c.prev.seller || 'Sin datos')}</span>
+                      <span class="arrow">→</span>
+                      <strong class="curr-val">${esc(c.curr.seller || 'Sin datos')}</strong>
+                    </div>
+                  </div>
+                ` : ''}
+
+                ${c.replacedEdits && c.replacedEdits.length ? `
+                  <div class="change-row"><span class="chip accent">Amazon reemplazó tus ediciones en: ${esc(editedLabels(c.replacedEdits))}</span></div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="m-foot changes-foot">
+      <small class="muted">Puedes minimizar este modal para navegar por el armador y recuperarlo cuando quieras.</small>
+      <div class="spacer"></div>
+      <button type="button" class="btn" data-action="minimize-changes">🗕 Minimizar</button>
+      <button type="button" class="btn primary" data-action="close-changes">Cerrar resumen</button>
+    </div>
+  `;
+}
+
+function renderChangesDockHtml(r) {
+  const count = r.changes?.length || 0;
+  return `
+    <div class="changes-dock-inner">
+      <div class="changes-dock-info">
+        <span class="changes-dock-icon">📋</span>
+        <span class="changes-dock-text">
+          <strong>Resumen de cambios:</strong> ${count} producto${count === 1 ? '' : 's'} con cambios
+        </span>
+      </div>
+      <div class="changes-dock-actions">
+        <button type="button" class="btn small primary" data-action="restore-changes" title="Expandir modal de resumen">🔼 Ver resumen</button>
+        <button type="button" class="btn small ghost" data-action="close-changes" title="Cerrar y descartar resumen" aria-label="Cerrar">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+function openChangesModal(summary) {
+  if (!summary?.changes?.length) return;
+  currentChanges = summary;
+  hideChangesDock();
+  $('#changesModalBody').innerHTML = renderChangesSummaryHtml(summary);
+  if (!changesModal.open) changesModal.showModal();
+}
+
+function minimizeChangesModal() {
+  if (changesModal.open) changesModal.close();
+  if (currentChanges?.changes?.length) {
+    showChangesDock(currentChanges);
+    toast('Resumen de cambios minimizado. Puedes reabrirlo abajo.', false, 3500);
+  }
+}
+
+function restoreChangesModal() {
+  if (currentChanges) {
+    openChangesModal(currentChanges);
+  }
+}
+
+function closeChangesModal() {
+  if (changesModal.open) changesModal.close();
+  currentChanges = null;
+  hideChangesDock();
+}
+
+function showChangesDock(summary) {
+  changesDock.innerHTML = renderChangesDockHtml(summary);
+  changesDock.hidden = false;
+}
+
+function hideChangesDock() {
+  changesDock.hidden = true;
+  changesDock.innerHTML = '';
+}
+
 function sparkline(hist) {
   const pts = (hist || []).filter((h) => h.price != null);
   if (pts.length < 2) return '<p class="muted" style="margin:0">Aún no hay historial suficiente. Cada actualización guarda un punto.</p>';
@@ -1195,6 +1478,9 @@ document.addEventListener('click', async (e) => {
     case 'settings': return settingsModal();
     case 'save-settings': return saveSettings();
     case 'close': return closeModal();
+    case 'minimize-changes': return minimizeChangesModal();
+    case 'restore-changes': return restoreChangesModal();
+    case 'close-changes': return closeChangesModal();
     case 'delete': {
       const p = findP(cat, id);
       if (!confirm(`¿Eliminar "${shortTitle(p.title, 60)}" de las opciones?`)) return;
@@ -1316,6 +1602,8 @@ $('#importFile').addEventListener('change', async (e) => {
 });
 
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+changesModal.addEventListener('cancel', (e) => { e.preventDefault(); minimizeChangesModal(); });
+changesModal.addEventListener('click', (e) => { if (e.target === changesModal) minimizeChangesModal(); });
 
 await loadStore();
 render();
