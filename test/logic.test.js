@@ -493,3 +493,29 @@ test('filtros de discos: todas las capacidades y conteos dinámicos según los d
   // Con una sola capacidad igual se ofrece (always).
   assert.deepEqual(commonFeatures(list.filter((p) => /1TB/.test(p.title)), 'storage').find((x) => x.key === 'capacity').values, [{ value: 1000, count: 2 }]);
 });
+
+test('cables y accesorios: tipo, certificación, versión, ancho de banda, longitud y filtros', async () => {
+  const { featuresFor, featureValue, commonFeatures, viewOptions } = await import('../public/logic.js');
+  const vals = (p) => Object.fromEntries(featuresFor('accessories').map((f) => [f.key, featureValue(f, p, 'accessories')]));
+  const dp80 = mk('[VESA Certified] Cable Matters 80Gbps DisplayPort 2.1 Cable, 6.6ft / 2m');
+  const dp54 = mk('Silkland 54Gbps 16K DisplayPort Cable 2.1, [VESA Certified] DP Cord 6.6FT');
+  const dp8k = mk('[VESA Certified] Cable Matters 32.4Gbps DisplayPort 1.4 Cable, 6ft');
+  const hdmi = mk('Monoprice 8K Certified Ultra High Speed HDMI Cable - Braided - HDMI 2.1, 8K@60Hz, 4K@120Hz, 48Gbps, HDR, VRR, CL2 In-Wall Rated, 10ft, Black');
+  const plain = mk('HDMI Cable 4K 6 Feet');
+  const sata = mk('Cable Matters 3-Pack Straight SATA III 6Gbps Cable, Black, 18 inches');
+  const surge = mk('Tripp Lite 7 Outlet Surge Protector, 2160 Joules');
+  const pick = (v) => [v.kind, v.cert, v.version, v.gbps, v.length, v.braided];
+  assert.deepEqual(pick(vals(dp80)), ['Cable DisplayPort', 'VESA DP80', 'DP 2.1', 80, 2, 'Normal']); // los metros mandan sobre los pies
+  assert.deepEqual(pick(vals(dp54)), ['Cable DisplayPort', 'VESA DP54', 'DP 2.1', 54, 2, 'Normal']);
+  assert.deepEqual(pick(vals(dp8k)), ['Cable DisplayPort', 'VESA DP8K', 'DP 1.4', 32.4, 1.8, 'Normal']);
+  assert.deepEqual(pick(vals(hdmi)), ['Cable HDMI', 'HDMI Ultra High Speed', 'HDMI 2.1', 48, 3, 'Trenzado']);
+  assert.deepEqual(pick(vals(plain)), ['Cable HDMI', 'Sin certificación', null, null, 1.8, 'Normal']);
+  assert.deepEqual(pick(vals(sata)), ['Cable SATA', null, null, null, 0.5, 'Normal']); // sin ancho de banda de video
+  assert.deepEqual([vals(surge).kind, vals(surge).length, vals(surge).joules], ['Protector de picos', null, 2160]);
+
+  const list = [dp80, dp54, dp8k, hdmi, sata];
+  const keys = commonFeatures(list, 'accessories').map((f) => f.key);
+  assert.ok(['kind', 'cert', 'version', 'gbps', 'length'].every((k) => keys.includes(k)));
+  assert.deepEqual(viewOptions(list, { feats: { kind: 'Cable DisplayPort', gbps: 54 } }, 'accessories'), [dp80, dp54]);
+  assert.deepEqual(viewOptions(list, { feats: { cert: 'VESA DP8K' } }, 'accessories'), [dp8k]);
+});

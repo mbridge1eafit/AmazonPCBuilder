@@ -786,6 +786,66 @@ const GPU_CHIP = /\b(RTX|GTX|RX|Arc)\s?-?([AB]?\d{3,4})(?:\s?(Ti|Super|XTX|XT|GR
 const CHIPSET = /\b(X870E?|B850|B840|X670E?|B650E?|A620|X570|B550|A520|B450|X470|Z890|B860|H810|Z790|B760|H770|H610|Z690|B660)/i;
 const isLiquid = (p) => catFeature(p, { keys: /cooling method|refrigeraci|enfriamiento/i, re: /\b(AIO|liquid|l[ií]quid[oa]|water|agua|air|aire)\b/i, map: (m) => !/^(air|aire)$/i.test(m[1]) });
 
+// ---------- cables y accesorios ----------
+// Tipo de accesorio por el título.
+function accessoryKind(p) {
+  const tt = p.title || '';
+  if (isSurgeProtector(p)) return 'Protector de picos';
+  if (/\bDisplay\s?Port\b|\bDP\s?(?:to|a)\s?DP\b|\bDP\s?(?:1\.4|2\.1)\b|\bDP(?:8K|40|54|80)\b/i.test(tt)) return 'Cable DisplayPort';
+  if (/\bHDMI\b/i.test(tt)) return 'Cable HDMI';
+  if (/\bSATA\b/i.test(tt)) return 'Cable SATA';
+  if (/\bUSB\b/i.test(tt)) return 'Cable USB';
+  return /cable/i.test(tt) ? 'Otro cable' : 'Otro accesorio';
+}
+const isVideoCable = (p) => /DisplayPort|HDMI/.test(accessoryKind(p));
+// Certificación de cable de video declarada. VESA: DP80/DP54/DP40 son DisplayPort 2.1 (UHBR20/13.5/10); DP8K es DP 1.4 (HBR3).
+// HDMI: «Certified Ultra High Speed» es el programa de HDMI LA para 48 Gbps (etiqueta con QR).
+function cableCert(p) {
+  const kind = accessoryKind(p);
+  if (!/DisplayPort|HDMI/.test(kind)) return null;
+  const t = text(p);
+  if (kind === 'Cable HDMI') return /certif/i.test(t) && /ultra high speed|48\s?Gbps/i.test(t) ? 'HDMI Ultra High Speed' : 'Sin certificación';
+  if (!/VESA[\s-]?certif|certif\w*\s(?:by|por)\s(?:the\s)?VESA|DP(?:80|54|40)(?:LL)?\b|DP8K/i.test(t)) return 'Sin certificación';
+  const m = t.match(/\bDP(80|54|40)(?:LL)?\b|\b(80|54|40)\s?Gbps/i);
+  if (m) return `VESA DP${m[1] || m[2]}`;
+  return /DP8K|DisplayPort\s?(?:Cable\s)?1\.4|DP\s?1\.4|32\.4\s?Gbps|HBR3/i.test(t) ? 'VESA DP8K' : 'VESA (sin clase)';
+}
+const CERT_GBPS = { 'VESA DP80': 80, 'VESA DP54': 54, 'VESA DP40': 40, 'VESA DP8K': 32.4, 'HDMI Ultra High Speed': 48 };
+// Ancho de banda: el del título («80Gbps», «32.4Gbps») o el de la certificación.
+function cableGbps(p) {
+  const m = (p.title || '').match(/(\d{1,2}(?:\.\d)?)\s?Gbps/i);
+  return m ? Number(m[1]) : CERT_GBPS[cableCert(p)] ?? null;
+}
+function cableVersion(p) {
+  const kind = accessoryKind(p);
+  const tt = p.title || '';
+  if (kind === 'Cable DisplayPort') {
+    const m = tt.match(/(?:Display\s?Port|DP)\s?(?:Cable\s|Cord\s)?(2\.1|2\.0|1\.4|1\.2)\b/i);
+    if (m) return `DP ${m[1]}`;
+    const c = cableCert(p);
+    return /DP(80|54|40)/.test(c) ? 'DP 2.1' : c === 'VESA DP8K' ? 'DP 1.4' : null;
+  }
+  if (kind === 'Cable HDMI') {
+    const m = tt.match(/HDMI\s?(?:Cable\s)?(2\.1|2\.0|1\.4)/i);
+    return m ? `HDMI ${m[1]}` : cableCert(p) === 'HDMI Ultra High Speed' ? 'HDMI 2.1' : null;
+  }
+  return null;
+}
+// Longitud en metros: la del título (los metros si los dice; si no, pies o pulgadas) o la spec de largo.
+function cableLengthM(p) {
+  const r1 = (n) => Math.round(n * 10) / 10;
+  for (const s of [p.title || '', ...Object.entries(p.specs || {}).filter(([k]) => /length|longitud|largo/i.test(k)).map(([, v]) => v)]) {
+    const str = String(s).replace(/(\d),(\d)/g, '$1.$2');
+    const m = str.match(/(\d{1,2}(?:\.\d{1,2})?)\s?(?:m|meters?|metros?)\b/i);
+    if (m) return r1(Number(m[1]));
+    const ft = str.match(/(\d{1,3}(?:\.\d{1,2})?)\s?(?:ft|feet|foot|pies)\b/i);
+    if (ft) return r1(Number(ft[1]) * 0.3048);
+    const inch = str.match(/(\d{1,3}(?:\.\d)?)\s?(?:inch(?:es)?|in\b|pulgadas|")/i);
+    if (inch) return r1(Number(inch[1]) * 0.0254);
+  }
+  return null;
+}
+
 // Características por categoría. tag: viene de detectTags (las mismas que usa la compatibilidad, editables a mano).
 export const FEATURES = {
   cpu: [
@@ -870,6 +930,18 @@ export const FEATURES = {
     { key: 'panel', label: 'Panel', type: 'cat', keys: /panel|display technology|tecnolog[ií]a de (?:la )?pantalla/i, re: /\b(QD-?OLED|OLED|IPS|VA|TN)\b/i, map: (m) => m[1].toUpperCase().replace('QDOLED', 'QD-OLED') },
     { key: 'response', label: 'Respuesta', unit: 'ms', better: 'low', keys: /response time|tiempo de respuesta/i, re: /(\d(?:[.,]\d{1,2})?)\s?ms\b/gi, conv: within(0.01, 30), agg: smallest },
     WATTS, BRAND,
+  ],
+  accessories: [
+    { key: 'kind', label: 'Tipo', type: 'cat', always: true, get: accessoryKind },
+    { key: 'cert', label: 'Certificación', type: 'cat', get: cableCert },
+    { key: 'version', label: 'Versión', type: 'cat', get: cableVersion },
+    { key: 'gbps', label: 'Ancho de banda', unit: 'Gbps', better: 'high', get: (p) => (isVideoCable(p) ? cableGbps(p) : null) },
+    { key: 'length', label: 'Longitud', unit: 'm', better: 'high', exact: true, get: (p) => (/cable/i.test(accessoryKind(p)) ? cableLengthM(p) : null) },
+    { key: 'braided', label: 'Forro', type: 'cat', get: (p) => (/cable/i.test(accessoryKind(p)) ? (/braided|trenzad|nylon/i.test(p.title || '') ? 'Trenzado' : 'Normal') : null) },
+    { key: 'joules', label: 'Protección', unit: 'J', better: 'high', tag: 'joules' },
+    { key: 'outlets', label: 'Tomas', unit: 'tomas', better: 'high', tag: 'outlets' },
+    { key: 'vpr', label: 'VPR', unit: 'V', better: 'low', tag: 'vpr' },
+    BRAND,
   ],
 };
 export const featuresFor = (cat) => FEATURES[cat] || [BRAND];
