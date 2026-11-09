@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as cheerio from 'cheerio';
-import { amount, parseBox, parseOfferText, parseSellerText, offerSeller, offerShipsFrom, undouble, guessCategory, bestNewOffer, deliversToColombia, readProduct } from '../public/amazon-parse.js';
+import { amount, parseBox, parseOfferText, parseSellerText, offerSeller, offerShipsFrom, undouble, guessCategory, bestNewOffer, deliversToColombia, readProduct, readInvoice, readOrderIds, orderDate, needsSignIn } from '../public/amazon-parse.js';
 
 test('importes en USD y COP', () => {
   assert.deepEqual(amount('US$1,234.56'), { value: 1234.56, currency: 'USD' });
@@ -95,4 +95,39 @@ test('categoría sugerida por título', () => {
 test('vendedor externo en inglés con métricas y enlace "Learn more" (texto real)', () => {
   const tab = 'Ships from Amazon Amazon Ships from Amazon Sold by Thermalright Direct Thermalright Direct 100k+ Orders fulfilled in past year 5+ Years on Amazon Learn more about the seller Returns 30-day refund';
   assert.deepEqual(parseSellerText(tab), { seller: 'Thermalright Direct', shipsFrom: 'Amazon' });
+});
+
+test('factura de un pedido: artículos, descuentos y tarjeta de regalo (no baja lo pagado)', () => {
+  const html = `<html><body>
+    <div>Order placed September 18, 2026 Order # 112-1111111-2222222</div>
+    <div class="a-fixed-left-grid-inner">
+      <div><a href="/dp/B0D6NN6TM7/ref=x"><img alt=""></a></div>
+      <div class="a-fixed-left-grid-col a-col-right"><a href="/gp/product/B0D6NN6TM7">AMD Ryzen 5 9600X</a> Sold by: Amazon.com <span>$175.50</span></div>
+    </div>
+    <div class="a-fixed-left-grid-inner"><div><a href="/dp/B018Y2LCEI">Cable Matters 3-Pack SATA III</a> Qty: 2 <span>$6.99</span></div></div>
+    <ul><li>Item(s) Subtotal: $189.48</li><li>Shipping &amp; Handling: $12.17</li><li>Prime Free Shipping: -$12.17</li><li>Promotion applied: -$1.50</li>
+      <li>Total before tax: $187.98</li><li>Estimated tax to be collected: $0.00</li><li>Gift Card Amount: -$77.98</li><li>Grand Total: $110.00</li></ul>
+  </body></html>`;
+  const $ = cheerio.load(html);
+  const r = { one: (s, n) => (n ? $(n).find(s) : $(s)).get(0) ?? null, all: (s, n) => (n ? $(n).find(s) : $(s)).toArray(), text: (n) => (n ? $(n).text() : ''), attr: (n, a) => (n ? $(n).attr(a) ?? null : null), up: (n) => (n ? $(n).parent().get(0) ?? null : null) };
+  const inv = readInvoice(r);
+  assert.deepEqual([inv.orderId, inv.date, inv.subtotal, inv.shipping, inv.discounts, inv.total, inv.charged], ['112-1111111-2222222', '2026-09-18', 189.48, 12.17, 13.67, 187.98, 110]);
+  assert.deepEqual(inv.items.map((x) => [x.asin, x.title, x.price, x.qty]), [['B0D6NN6TM7', 'AMD Ryzen 5 9600X', 175.5, 1], ['B018Y2LCEI', 'Cable Matters 3-Pack SATA III', 6.99, 2]]);
+  assert.deepEqual(readOrderIds('<div>112-1111111-2222222</div> 112-1111111-2222222 D01-1234567-1234567 000-0000000-8675309'), ['112-1111111-2222222']);
+  assert.equal(orderDate('22 de septiembre de 2026'), '2026-09-22');
+});
+
+test('inicio de sesión: el enlace /ap/signin del menú no cuenta, la página de Sign-In sí', () => {
+  const orders = '<html><head><title>Your Orders</title></head><body><script>{"html": "<div id=\'nav-signin-tooltip\'><a href=\'https://www.amazon.com/ap/signin?openid.return_to=x\'>Sign in</a></div>"}</script>112-1111111-2222222</body></html>';
+  assert.equal(needsSignIn('https://www.amazon.com/your-orders/orders', orders), false);
+  assert.equal(needsSignIn('https://www.amazon.com/your-orders/orders', '<html><head><title>Amazon Sign-In</title></head></html>'), true);
+  assert.equal(needsSignIn('https://www.amazon.com/ap/signin?openid.return_to=x', ''), true);
+});
+
+test('regionOf distingue Colombia y EE. UU.', async () => {
+  const { regionOf } = await import('../public/amazon-parse.js');
+  assert.equal(regionOf('Medellin 050022'), 'co');
+  assert.equal(regionOf('Miami 33166'), 'us');
+  assert.equal(regionOf('', '$179.00 No Import Charges & $17.38 Shipping to Colombia'), 'co');
+  assert.equal(regionOf(''), null);
 });

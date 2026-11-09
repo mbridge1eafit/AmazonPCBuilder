@@ -84,6 +84,12 @@ export function isBlocked(s) {
 
 // La línea de entrega puede decir "Colombia" o la ciudad ("Medellin 050022" con sesión); la caja de compra dice "to/a Colombia".
 export const deliversToColombia = (deliverTo, box) => /Colombia/i.test(deliverTo || '') || /\b(?:to|a) Colombia\b/i.test(clean(box));
+// Región a la que entrega tu sesión: 'co' (Colombia) o 'us' (dirección en EE. UU., p. ej. "Miami 33101").
+export function regionOf(deliverTo, box = '') {
+  if (deliversToColombia(deliverTo, box) || /Medell[ií]n|Bogot[aá]|Colombia/i.test(deliverTo || '')) return 'co';
+  if (/\b\d{5}(?:-\d{4})?\b|Miami|United States|EE\.? ?UU/i.test(deliverTo || '')) return 'us';
+  return null;
+}
 
 // Tabla "Envío por / Vendedor", "Ships from / Sold by" o "Shipper / Seller".
 export function parseSellerText(tab) {
@@ -207,6 +213,7 @@ export function readProduct(r) {
   const deliverTo = (t('#glow-ingress-line2') || t('#contextualIngressPtLabel_deliveryShortLine')).replace(/^(Enviar a|Deliver to)\s*/i, '');
   const availability = clean(t('#availability').split('{')[0]);
   const locationOk = deliversToColombia(deliverTo, boxText);
+  const region = regionOf(deliverTo, boxText);
 
   return {
     title, image, specs, deliverTo, availability, price,
@@ -222,12 +229,82 @@ export function readProduct(r) {
     importFeesInfo: box.importFees != null ? 'amazon' : price != null && locationOk && !/importaci[oó]n|Import (?:Charges|Fees)/i.test(boxText) ? 'no-informado' : null,
     total: box.total,
     locationOk,
+    region,
     shipsToCO: box.blocked || isBlocked(availability) ? false : price != null && locationOk ? true : null,
     rating: parseFloat((r.attr(r.one('#acrPopover'), 'title') || '').replace(',', '.')) || null,
     reviews: Number(t('#acrCustomerReviewText').replace(/\D/g, '')) || null,
     hasBuybox: price != null,
     condition: notNewCondition(title),
     debug: { box: boxText.slice(0, 1500), deliverTo, priceText: t(SEL.price) || null, hiddenPrice: hidden ? `${hidden.value} ${hidden.currency}` : null },
+  };
+}
+
+// ---------- tus pedidos: precio pagado ----------
+// Las páginas de pedidos llegan sin los artículos (Amazon los pinta con JavaScript), pero traen los números de pedido.
+// La factura imprimible de cada pedido sí trae artículos, envío, descuentos, cargos de importación y total.
+// Búsqueda en tus pedidos (todos los años), por ASIN o por nombre.
+export const orderSearchUrl = (q) => `/your-orders/search?search=${encodeURIComponent(q)}`;
+export const invoiceUrl = (orderId) => `/gp/css/summary/print.html?orderID=${orderId}`;
+// Las páginas traen además un pedido de ejemplo («000-0000000-…») que no es tuyo: se descarta.
+export const readOrderIds = (html) => [...new Set(String(html ?? '').match(/\b\d{3}-\d{7}-\d{7}\b/g) || [])].filter((id) => !id.startsWith('000-'));
+// ¿Amazon mandó al inicio de sesión? Por la URL final o el título de la página (todas las páginas traen
+// enlaces a /ap/signin en el menú, así que buscar ese texto en el HTML da falsos positivos).
+export const needsSignIn = (url, html) => /\/ap\/(?:signin|mfa|cvf)/i.test(url || '')
+  || /<title>[^<]*(?:Sign[\s-]?In|Iniciar sesi[oó]n)/i.test(String(html ?? '').slice(0, 20000));
+
+const MONTHS = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+// «September 22, 2026» o «22 de septiembre de 2026» → «2026-09-22».
+export function orderDate(s) {
+  const t = clean(s);
+  const en = t.match(/\b([A-Z][a-z]+) (\d{1,2}), (\d{4})\b/);
+  const es = t.match(/\b(\d{1,2}) de ([a-záéíóú]+) de (\d{4})\b/i);
+  const [m, d, y] = en ? [MONTHS[en[1].toLowerCase()], en[2], en[3]] : es ? [MONTHS[es[2].toLowerCase()], es[1], es[3]] : [];
+  return m ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+}
+
+// Factura de un pedido. `r` es el mismo adaptador de readProduct, con up(nodo) → nodo padre.
+export function readInvoice(r) {
+  const body = clean(r.text(r.one('body')));
+  // Resumen del pedido: de «Item(s) Subtotal» hasta el «Grand Total» (después vienen los artículos otra vez).
+  const start = body.search(/Item\(s\) Subtotal|Subtotal de (?:los )?(?:productos|art[ií]culos)/i);
+  const rest = start >= 0 ? body.slice(start, start + 800) : '';
+  const end = rest.match(re('(?:Grand Total|Total (?:general|del pedido)):?\\s*AMT'));
+  const sum = end ? rest.slice(0, end.index + end[0].length) : rest;
+  const val = (res) => money(first(sum, res));
+  const items = [];
+  for (const a of r.all('a[href*="/dp/"], a[href*="/gp/product/"]')) {
+    const asin = extractAsin(r.attr(a, 'href'));
+    if (!asin) continue;
+    const title = clean(r.text(a));
+    const known = items.find((x) => x.asin === asin);
+    if (known) { if (!known.title && title) known.title = title; continue; }
+    // El bloque del artículo es el primero, subiendo desde el enlace, que ya muestra un precio.
+    let box = a;
+    for (let k = 0; k < 8 && box && !AMT_RE.test(clean(r.text(box))); k++) box = r.up(box);
+    const txt = clean(r.text(box));
+    const qty = Number(first(txt, [/^(\d+) of:/, /\b(?:Qty|Quantity|Cantidad):?\s*(\d+)/i])) || 1;
+    items.push({ asin, title, price: money(txt), qty });
+  }
+  // Descuentos (envío gratis, promociones): los negativos antes de «Total before tax». Lo que viene después
+  // (tarjeta de regalo, puntos) es un medio de pago: baja lo cobrado a la tarjeta, no lo que pagaste.
+  const cut = sum.search(/Total before tax|Total antes de impuestos/i);
+  const neg = [...(cut >= 0 ? sum.slice(0, cut) : sum).matchAll(re('-\\s?AMT', 'gi'))].reduce((a, m) => a + (money(m[1]) || 0), 0);
+  const beforeTax = val([re('Total before tax:?\\s*AMT'), re('Total antes de impuestos:?\\s*AMT')]);
+  const tax = val([re('(?:Estimated tax to be collected|Tax Collected):?\\s*AMT'), re('Impuestos? (?:estimados? )?(?:a recaudar|recaudados?):?\\s*AMT')]);
+  const charged = val([re('Grand Total:?\\s*AMT'), re('Total (?:general|del pedido):?\\s*AMT')]);
+  return {
+    orderId: first(body, [/Order #:?\s*(\d{3}-\d{7}-\d{7})/i, /(?:Pedido|N[uú]mero de pedido)[^\d]{0,12}(\d{3}-\d{7}-\d{7})/i]) || readOrderIds(body)[0] || '',
+    date: orderDate(first(body, [/Order placed:?\s*([A-Z][a-z]+ \d{1,2}, \d{4})/i, /Pedido realizado(?: el)?:?\s*(\d{1,2} de [a-záéíóú]+ de \d{4})/i]) || ''),
+    currency: currencyOf(sum) || 'USD',
+    items,
+    subtotal: val([re('Item\\(s\\) Subtotal:?\\s*AMT'), re('Subtotal de (?:los )?(?:productos|art[ií]culos):?\\s*AMT')]),
+    shipping: val([re('Shipping (?:&|and) Handling:?\\s*AMT'), re('Env[ií]o y (?:manipulaci[oó]n|gesti[oó]n):?\\s*AMT')]),
+    discounts: +neg.toFixed(2),
+    importFees: val([re('Import Fees Deposit:?\\s*AMT'), re('Dep[oó]sito (?:de|por) (?:cargos|tasas) de importaci[oó]n:?\\s*AMT')]),
+    tax,
+    total: beforeTax != null ? +(beforeTax + (tax ?? 0)).toFixed(2) : charged, // lo pagado por el pedido
+    charged, // lo cobrado a la tarjeta (sin tarjeta de regalo ni puntos)
   };
 }
 

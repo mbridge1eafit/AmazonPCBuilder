@@ -48,6 +48,33 @@ armador (localhost) ──pcb:fetch {asin}──▶ conector en amazon.com ─�
 - En «Detalles», **Diagnóstico de la última lectura** muestra el texto de la caja de compra que leyó el conector.
 - Diagnóstico desde la consola de la pestaña de Amazon: `await __pcbConnector.request('B0DQ9PDT22')`.
 
+## Destino: Colombia o Miami
+
+Cada producto tiene un **destino** (✎ Detalles → «Destino del envío»): **Colombia** (por defecto, importado) o **Miami** (dirección en EE. UU.). Sirve para lo que supera US$200 y conviene traer por Miami.
+
+- El conector detecta a dónde entrega tu sesión (la línea «Deliver to» de Amazon): «Medellin 050022» → Colombia; un código postal de EE. UU. («Miami 33186») → Miami.
+- **Un producto solo se actualiza con una sesión de su mismo destino.** Con la sesión en Miami, ↻ y «Actualizar todo» leen solo los productos de Miami y omiten los de Colombia sin tocarlos; con la sesión en Medellín, al revés. Para actualizar el otro grupo, cambia la dirección de entrega en Amazon, recarga la pestaña y pulsa el marcador.
+- Un producto nuevo toma el destino de la sesión que lo lee por primera vez.
+- Costo en Miami = producto + envío a Miami (de Amazon) + **sales tax estimado** (7 %: 6 % Florida + 1 % Miami-Dade, en Ajustes). Amazon no muestra el impuesto en la ficha: el exacto sale en el checkout. No hay cargos de importación ni umbral de US$200.
+
+## Comercios: precio en varias tiendas
+
+Cada producto puede tener (opcional) su enlace y precio en **Amazon** (envío a Medellín), **Amazon USA** (envío a Miami), **Newegg**, **Best Buy**, **Micro Center** y **Mercado Libre** (COP). Se editan en ✎ Detalles → «Comercios»; la fila de Amazon del destino del producto es el propio producto.
+
+- La tarjeta muestra abajo las tiendas con enlace y precio (logo, precio, ▲/▼ desde la lectura anterior) y marca **el más bajo** (COP se compara en US$ con la TRM). No cambian el total del armado.
+- Base de cada precio: Amazon a Medellín = total con envío y cargos; Amazon a Miami = precio + envío (sin sales tax); las demás = precio de venta en la tienda.
+- **$ Actualizar precios** relee el precio de todos los enlaces del armado. Esas tiendas bloquean las consultas del servidor (Cloudflare y similares), así que se leen **en su propia pestaña con el mismo marcador**: el modal tiene un botón «Abrir …» por tienda; ahí pulsas el marcador y lo pendiente sigue solo. Amazon se lee con tu sesión y solo para el destino al que entrega.
+- Requiere reinstalar el marcador (🔌 Conector): el anterior solo funciona en amazon.com.
+
+## Precio pagado (lo ya comprado)
+
+Lo **Ya comprado** vale lo que pagaste: ese valor queda **fijo** en el total del armado. El precio de Amazon (con envío y cargos a Colombia) se sigue leyendo con ↻ para ver si **subió o bajó** desde tu compra (▲/▼ en la tarjeta y aviso «Bajó de precio desde tu compra»).
+
+- **🧾 Precio pagado** (en «Costo del armado completo», en la tarjeta o en ✎ Detalles) abre la lista de lo comprado. **Leer de mis pedidos de Amazon** hace que el conector busque cada producto en *Tus pedidos* (todos los años, por ASIN y, si no aparece, por nombre) y lea la factura de cada pedido encontrado (`/gp/css/summary/print.html`): artículo, envío, descuentos, cargos de importación e impuestos. Revisa y pulsa **Guardar**.
+- Pedido de un solo artículo: lo pagado es el total del pedido. Con varios artículos, el envío, los cargos y las promociones del pedido se reparten según el valor de cada uno (exacto si no hubo nada que repartir). La **tarjeta de regalo** o los puntos no bajan lo pagado: son medios de pago.
+- Si el producto no está por ASIN (otra variante, p. ej. otro color) se busca por nombre y se marca «revísalo». Lo que no aparece (comprado en otra tienda o antes) se escribe a mano, en US$ o COP.
+- Al marcar un producto como «Ya comprado» la app te pregunta cuánto pagaste. Sin precio pagado, el total usa el precio de hoy y sale el aviso «N comprados sin precio pagado».
+
 ## Funciones
 
 Inspiradas en PCPartPicker, BuildCores, Pangoly y DropReference, adaptadas a comprar desde Colombia:
@@ -57,7 +84,7 @@ Inspiradas en PCPartPicker, BuildCores, Pangoly y DropReference, adaptadas a com
 - **Estados por pieza:** *Por comprar*, *Ya comprado* y *Planeado*. Los planeados, como la GPU, cuentan para el consumo pero no para el total a pagar.
 - **Decisión por estrellas** (aparte del estado): ☆☆☆ *sin decidir* · ★ *candidato* · ★★ *probable* · ★★★ **fijo** (ya lo decidiste). Se marca con un clic en las estrellas de la tarjeta; volver a pulsar la misma estrella lo deja sin decidir.
 - **Costos Colombia:** envío, cargos de importación (los de Amazon o un IVA estimado si Amazon no los da), aviso ≥ US$200, un pedido por producto y conversión a COP con la TRM configurable.
-- **Compatibilidad:** socket CPU/placa/disipador, DDR4/DDR5, formato placa/caja, altura del disipador, ranuras M.2 y puertos SATA, potencia de la fuente con margen y conector 12V-2x6 para GPU RTX 40/50.
+- **Compatibilidad:** socket CPU/placa/disipador, DDR4/DDR5, formato placa/caja, altura del disipador, ranuras M.2 y puertos SATA, potencia de la fuente con margen, conector 12V-2x6 para GPU RTX 40/50 y protector de picos (capacidad, julios, voltaje de limitación y tomas para el PC, con lo planeado, y los monitores).
 - **Consumo estimado** por pieza y fuente recomendada.
 - **Historial de precio** con cada lectura y **precio objetivo** con alerta.
 - **Varios armados:** crear, duplicar, exportar/importar JSON y copiar como Markdown.

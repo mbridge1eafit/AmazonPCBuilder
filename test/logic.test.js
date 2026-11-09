@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { detectTags, estimateWatts, lineCost, totals, checks, DEFAULT_SETTINGS } from '../public/logic.js';
+import { detectTags, estimateWatts, lineCost, totals, checks, isSurgeProtector, DEFAULT_SETTINGS } from '../public/logic.js';
 import { extractAsin, money } from '../public/amazon-parse.js';
 
 const S = DEFAULT_SETTINGS;
@@ -35,6 +35,9 @@ test('detecta socket, memoria y formato', () => {
   assert.equal(detectTags(mk('ASUS TUF B550M-PLUS Micro-ATX DDR4'), 'motherboard').formFactor, 'Micro-ATX');
   assert.equal(detectTags(mk('ARCTIC P12 PWM PST (5 Pack) - Ventiladores'), 'fans').count, 5);
   assert.equal(detectTags(mk('Thermalright Ventilador de CPU TL-C12C X3, ventilador'), 'fans').count, 3);
+  assert.equal(detectTags(mk('CORSAIR RS120 120mm PWM Fans – Daisy-Chain Connection – Triple Pack – Black'), 'fans').count, 3);
+  assert.equal(detectTags(mk('Noctua NF-A12x25, Dual-Pack'), 'fans').count, 2);
+  assert.equal(detectTags(mk('Ventiladores 120 mm ARGB, pack cuádruple'), 'fans').count, 4);
   const psu = detectTags(mk('MSI MPG A850GS PCIE5, 850W, 80 Plus Gold, ATX 3.1, 12V-2x6'), 'psu');
   assert.deepEqual([psu.psuWatts, psu.has12v2x6], [850, true]);
   assert.equal(detectTags(mk('Thermaltake GF A3 850W, 12VHPWR'), 'psu').has12v2x6, 'adaptable');
@@ -242,4 +245,251 @@ test('applySession conserva el nivel de decisión', async () => {
   const p = { id: 'x', status: 'buy', pick: 3, qty: 1, tags: {}, history: [] };
   applySession(p, { asin: 'B0CB9MSJ5N', url: 'https://www.amazon.com/dp/B0CB9MSJ5N', title: 'MSI MAG A850GL', fetchedAt: '2026-09-19T10:00:00Z', price: 99.99, shipping: 0, importFees: 0 });
   assert.equal(pickLevel(p), 3);
+});
+
+test('protector de picos: julios, tomas, capacidad y VPR', () => {
+  const super7 = mk('Eaton Tripp Lite Super-7 White 7 Outlet Flat Plug Surge Protector', { bullets: ['Features 7 outlets, 2160 joule rating', 'Includes a 15A circuit breaker'] });
+  assert.equal(isSurgeProtector(super7), true);
+  const t = detectTags(super7, 'accessories');
+  assert.deepEqual([t.joules, t.outlets, t.capacityW, t.vpr], [2160, 7, 1800, null]);
+  assert.equal(detectTags(mk('Belkin 6-Outlet Surge Protector', { bullets: ['1080 Joules, 72,000 Amps, 400V clamping voltage'] }), 'accessories').vpr, 400);
+  assert.equal(detectTags(mk('Tripp Lite Surge Protector', { bullets: ['Let Through Rating (clamping voltage) of 330/400/400'] }), 'accessories').vpr, 400);
+  assert.equal(isSurgeProtector(mk('APC UPS Battery Backup & Surge Protector 1500VA')), false);
+  assert.equal(isSurgeProtector(mk('Cable Matters 3-Pack SATA III')), false);
+});
+
+test('monitores: consumo de la ficha o por tamaño, fuera de la fuente', () => {
+  assert.equal(estimateWatts(mk('Monitor Janus 27" VA', { specs: { Consumo: '≤42 W' } }), 'monitor'), 42);
+  assert.equal(estimateWatts(mk('INNOCN 24.5" 1440P 240Hz'), 'monitor'), 30);
+  const b = buildWith({ cpu: [mk('AMD Ryzen 5 9600X')], monitor: [mk('INNOCN 24.5" 240Hz')] });
+  const t = totals(b, S);
+  assert.deepEqual([t.watts, t.externalWatts], [88 + 15, 30]);
+});
+
+test('checks: el protector de picos cubre el PC con lo planeado y los monitores', () => {
+  const surge = mk('Tripp Lite Super-7 7 Outlet Surge Protector', { bullets: ['2160 joule rating', '15A circuit breaker'] });
+  const b = buildWith({
+    cpu: [mk('AMD Ryzen 5 9600X')],
+    gpu: [mk('RTX 5070 Ti', { status: 'planned' })],
+    accessories: [surge],
+    monitor: [mk('INNOCN 24.5" 240Hz'), mk('Janus 27" VA', { specs: { Consumo: '≤42 W' } })],
+  });
+  const ok = checks(b, S).find((c) => c.title === 'Protector de picos suficiente');
+  assert.ok(ok, 'PC ~448 W + monitores 72 W en una regleta de 1800 W');
+  assert.match(ok.detail, /520 W de 1800 W/);
+
+  surge.bullets = ['600 joules'];
+  surge.tags = { outlets: 2 };
+  const list = checks(b, S);
+  assert.ok(list.some((c) => c.level === 'warn' && c.title === 'Protector de picos con poca protección'));
+  assert.ok(list.some((c) => c.level === 'error' && c.title === 'Faltan tomas en el protector'));
+
+  surge.tags = { capacityW: 500 };
+  assert.ok(checks(b, S).some((c) => c.level === 'error' && c.title === 'Protector de picos sobrecargado'));
+
+  b.parts.accessories.selected = [];
+  assert.ok(checks(b, S).some((c) => c.level === 'info' && c.title === 'Sin protector de picos'));
+});
+
+test('precio pagado: factura de un artículo, pedido repartido y búsqueda por nombre', async () => {
+  const { findPaid, paidFromInvoice, titleMatch, orderQuery } = await import('../public/logic.js');
+  assert.equal(orderQuery('AMD Ryzen™ 5 9600X 6-Core, 12-Thread'), 'AMD Ryzen 5');
+  assert.equal(orderQuery('ASUS ROG Strix GeForce GTX 1650 Super™'), 'ASUS ROG Strix');
+  const ssd = { orderId: '113-3557960-9521800', date: '2026-09-22', currency: 'USD', items: [{ asin: 'B0FJXQHXM2', title: 'Ediloca SSD 1TB', price: 199.99, qty: 1 }], subtotal: 199.99, shipping: 11.85, discounts: 11.85, importFees: null, tax: 0, total: 199.99 };
+  const combo = { orderId: '112-0000000-9748204', date: '2026-09-25', currency: 'USD', subtotal: 100, shipping: 10, discounts: 0, importFees: 10, tax: 0, total: 120,
+    items: [{ asin: 'B0D49QX74S', title: 'CORSAIR RS120 120mm PWM Fans – Triple Pack – Black', price: 40, qty: 1 }, { asin: 'B0D949MRNM', title: 'Thermalright Phantom Spirit 120 SE Black CPU Air Cooler,7 Heat Pipes Cooler', price: 60, qty: 1 }] };
+  const a = findPaid({ asin: 'B0FJXQHXM2', title: 'Ediloca SSD 1TB NVMe' }, [ssd, combo]);
+  assert.deepEqual([a.total, a.shipping, a.exact, a.by, a.orderId], [199.99, 0, true, 'asin', '113-3557960-9521800']);
+  const fans = paidFromInvoice(combo, combo.items[0]);
+  assert.deepEqual([fans.total, fans.importFees, fans.exact], [48, 4, false]); // 40 + 40 % de los US$20 de envío y cargos
+  const cooler = findPaid({ asin: 'B0BNDTJVPL', title: 'Thermalright Phantom Spirit 120SE CPU Air Cooler, 7 Heat Pipes CPU Cooler' }, [ssd, combo]);
+  assert.deepEqual([cooler.total, cooler.by], [72, 'nombre']);
+  assert.equal(titleMatch('Thermalright Phantom Spirit', 'CORSAIR RS120'), 0);
+  assert.equal(findPaid({ asin: 'B082N86RPJ', title: 'ASUS ROG Strix GTX 1650 Super' }, [ssd, combo]), null);
+});
+
+test('precio pagado: fijo en el total y comparación con el precio de hoy', async () => {
+  const { paidChange } = await import('../public/logic.js');
+  const ssd = mk('Ediloca SSD', { status: 'bought', price: 189.99, shipping: 0, importFees: 0, paid: { total: 199.99, source: 'pedido' } });
+  const ram = mk('RAM', { status: 'bought', price: 120, shipping: 0, importFees: 0 });
+  const b = buildWith({ storage: [ssd], ram: [ram] });
+  const t = totals(b, S);
+  assert.deepEqual([t.spent, t.boughtNoPaid], [319.99, 1]); // 199.99 pagado + 120 de hoy (sin precio pagado)
+  assert.deepEqual(paidChange(ssd, S), { paid: 199.99, now: 189.99, diff: -10, pct: -5 });
+  ssd.price = 250; // Amazon sube: el total del armado no cambia
+  assert.equal(totals(b, S).spent, 319.99);
+  const list = checks(b, S);
+  assert.ok(list.some((c) => c.level === 'info' && c.title === '1 comprado sin precio pagado'));
+  ssd.price = 150;
+  assert.ok(checks(b, S).some((c) => c.title === 'Bajó de precio desde tu compra'));
+});
+
+test('destino Miami: una sesión de otro destino no reescribe el producto', async () => {
+  const { applySession, lineCost, missingFields, DEFAULT_SETTINGS } = await import('../public/logic.js');
+  const co = { id: 'a', asin: 'B000000001', url: 'https://www.amazon.com/dp/B000000001', price: 700, shipping: 30, importFees: 140, fetchedAt: '2026-10-01T00:00:00Z' };
+  const miamiRead = { asin: 'B000000001', title: 'RTX 5070 Ti', price: 749.99, shipping: 0, region: 'us', deliverTo: 'Miami 33101', fetchedAt: '2026-10-14T00:00:00Z' };
+  assert.equal(applySession(co, miamiRead).skipped, true);
+  assert.equal(co.price, 700);
+  const mi = { id: 'b', asin: 'B000000001', url: 'https://www.amazon.com/dp/B000000001', market: 'miami', fetchedAt: '2026-10-01T00:00:00Z', price: 760 };
+  assert.equal(applySession(mi, { ...miamiRead, region: 'co' }).skipped, true);
+  assert.equal(mi.price, 760);
+  assert.ok(!applySession(mi, miamiRead).skipped);
+  assert.equal(mi.price, 749.99);
+  const c = lineCost(mi, DEFAULT_SETTINGS);
+  assert.equal(c.importFees, 52.5);
+  assert.equal(c.total, 802.49);
+  assert.ok(!missingFields({ ...mi, seller: 'Amazon.com', image: 'x', specs: { a: 1 } }).length);
+  const fresh = { id: 'c', asin: 'B000000002', url: 'https://www.amazon.com/dp/B000000002' };
+  applySession(fresh, { ...miamiRead, asin: 'B000000002' });
+  assert.equal(fresh.market, 'miami');
+});
+
+test('opciones: ordenar y filtrar', async () => {
+  const { viewOptions, normalizeView, viewFiltered, sortsFor } = await import('../public/logic.js');
+  const a = mk('ASUS Dual GeForce RTX 4060', { price: 300, shipping: 0, importFees: 60, shipsToCO: true, rating: 4.5, reviews: 900, seller: 'Amazon.com', pick: 1 });
+  const b = mk('MSI GeForce RTX 5070 Ventus', { price: 600, shipping: 20, importFees: 120, shipsToCO: true, rating: 4.8, reviews: 100, pick: 3 });
+  const c = mk('Gigabyte Radeon RX 7600 Gaming', { price: 150, shipping: 10, importFees: 0, shipsToCO: false, rating: 4.5, reviews: 2000 });
+  const d = mk('Tarjeta gráfica genérica', { price: null });
+  const list = [a, b, c, d];
+  const names = (v, cat = 'gpu') => viewOptions(list, v, cat, S).map((p) => p.title.split(' ')[0]);
+
+  // Orden: por defecto estrellas y luego como se agregaron; sin precio siempre al final.
+  assert.deepEqual(names({}), ['MSI', 'ASUS', 'Gigabyte', 'Tarjeta']);
+  assert.deepEqual(names({ sort: 'total-asc' }), ['Gigabyte', 'ASUS', 'MSI', 'Tarjeta']);
+  assert.deepEqual(names({ sort: 'total-desc' }), ['MSI', 'ASUS', 'Gigabyte', 'Tarjeta']);
+  assert.deepEqual(names({ sort: 'rating' }), ['MSI', 'Gigabyte', 'ASUS', 'Tarjeta']); // empate en ★: más reseñas
+  assert.deepEqual(names({ sort: 'reviews' }), ['Gigabyte', 'ASUS', 'MSI', 'Tarjeta']);
+  assert.deepEqual(names({ sort: 'recent' }), ['Tarjeta', 'Gigabyte', 'MSI', 'ASUS']);
+  assert.deepEqual(names({ sort: 'name' }), ['ASUS', 'Gigabyte', 'MSI', 'Tarjeta']);
+  assert.deepEqual(names({ sort: 'watts' }), ['ASUS', 'Gigabyte', 'MSI', 'Tarjeta']); // 115 · 165 · 250 · 250 (genérico)
+  assert.ok(sortsFor('gpu').some((o) => o.key === 'f:watts'));
+  assert.equal(normalizeView({ sort: 'watts' }, 'ram').sort, 'pick'); // orden de la versión anterior: en RAM no existe
+  assert.deepEqual(list, [a, b, c, d]); // no reordena la lista guardada
+
+  // Búsqueda: varias palabras, sin tildes ni mayúsculas, también por vendedor.
+  assert.deepEqual(names({ q: 'geforce DUAL' }), ['ASUS']);
+  assert.deepEqual(names({ q: 'grafica' }), ['Tarjeta']);
+  assert.deepEqual(names({ q: 'amazon.com' }), ['ASUS']);
+  assert.deepEqual(names({ q: 'geforce', sort: 'total-desc' }), ['MSI', 'ASUS']);
+
+  // Filtros
+  assert.deepEqual(names({ minPick: 1 }), ['MSI', 'ASUS']);
+  assert.deepEqual(names({ minPick: '3' }), ['MSI']);
+  assert.deepEqual(names({ avail: 'priced' }), ['MSI', 'ASUS', 'Gigabyte']);
+  assert.deepEqual(names({ avail: 'ships' }), ['MSI', 'ASUS']); // la Gigabyte no envía a CO
+  assert.deepEqual(names({ maxTotal: '400' }), ['ASUS', 'Gigabyte']); // 360 y 160 en Colombia
+  assert.deepEqual(names({ underThreshold: true }), ['Gigabyte']);
+  assert.equal(viewOptions([mk('Zotac', { price: 200, shipsToCO: true, availability: 'Currently unavailable.' })], { avail: 'priced' }, 'gpu', S).length, 0);
+  const local = mk('Local', { manual: true, price: 500 });
+  assert.equal(viewOptions([local], { underThreshold: true, avail: 'ships' }, 'gpu', S).length, 1); // compra local: sin IVA de importación
+
+  // ¿Hay filtros activos? El orden y los valores vacíos no cuentan.
+  assert.equal(viewFiltered(normalizeView({ sort: 'total-asc' }, 'gpu')), false);
+  assert.equal(viewFiltered(normalizeView({ q: '  ', maxTotal: '0', avail: 'toString' }, 'gpu')), false);
+  assert.equal(viewFiltered(normalizeView({ minPick: '2' }, 'gpu')), true);
+});
+
+test('opciones: sentido del orden y órdenes de la versión anterior', async () => {
+  const { viewOptions, normalizeView, dirLabel } = await import('../public/logic.js');
+  const list = [mk('A', { price: 100 }), mk('B', { price: 300 }), mk('C', { price: null }), mk('D', { price: 200 })];
+  const names = (v) => viewOptions(list, v, 'gpu', S).map((p) => p.title);
+  assert.deepEqual(names({ sort: 'total' }), ['A', 'D', 'B', 'C']); // por defecto, el más barato primero
+  assert.deepEqual(names({ sort: 'total', dir: 'desc' }), ['B', 'D', 'A', 'C']); // sin precio al final en ambos sentidos
+  assert.deepEqual(names({ sort: 'added', dir: 'asc' }), ['A', 'B', 'C', 'D']);
+  assert.deepEqual(names({ sort: 'name', dir: 'desc' }), ['D', 'C', 'B', 'A']);
+  assert.deepEqual(normalizeView({ sort: 'total-desc' }, 'gpu'), { ...normalizeView({}, 'gpu'), sort: 'total', dir: 'desc' });
+  assert.equal(normalizeView({ sort: 'recent' }, 'gpu').sort, 'added');
+  assert.equal(normalizeView({ sort: 'toString', dir: 'asc' }, 'gpu').dir, 'desc'); // desconocido: estrellas, más primero
+  assert.equal(dirLabel('total', 'asc'), 'Menor a mayor');
+});
+
+test('características: GPU (frecuencia con unidades mal puestas, VRAM, chip)', async () => {
+  const { featuresFor, featureValue, commonFeatures, viewOptions, fmtFeature } = await import('../public/logic.js');
+  const F = Object.fromEntries(featuresFor('gpu').map((f) => [f.key, f]));
+  const v = (p, k) => featureValue(F[k], p, 'gpu');
+  // La spec trae la base y el título el boost: gana el mayor. «2300 gigahertz» y «2.5 kilohertz» son 2.3 y 2.5 GHz.
+  const pny = mk('PNY GeForce RTX 5070 Ti OC (16GB GDDR7, Boost Speed: 2572 MHz)', { specs: { 'GPU Clock Speed': '2295 megahertz', 'Graphics Ram Size': '16 GB' } });
+  const odd = mk('PNY GeForce RTX 5070 TI 16GB Triple Fan', { specs: { 'GPU Clock Speed': '2300 gigahertz' } });
+  const kilo = mk('msi Gaming RTX 5070 TI 16G', { specs: { 'GPU Clock Speed': '2.5 kilohertz', 'Graphics Ram Size': '16384 MB' } });
+  // «28 gigahertz» es la velocidad de la memoria: se descarta y se usa la de las viñetas.
+  const zotac = mk('ZOTAC GeForce RTX 5070 Ti 16GB GDDR7 28 Gbps', { specs: { 'GPU Clock Speed': '28 gigahertz' }, bullets: ['2482 MHz Boost Clock'] });
+  // La spec dice «RTX 5070» pero el título dice Ti: manda el título.
+  const msi = mk('msi Gaming RTX 5070 Ti 16G Shadow 3X OC', { specs: { 'Graphics Coprocessor': 'NVIDIA GeForce RTX 5070' } });
+  const old = mk('ASUS ROG Strix GeForce GTX 1650 Super™ Advanced 4GB Edition GDDR6');
+  assert.deepEqual([v(pny, 'clock'), v(odd, 'clock'), v(kilo, 'clock'), v(zotac, 'clock'), v(old, 'clock')], [2.572, 2.3, 2.5, 2.482, null]);
+  assert.deepEqual([v(pny, 'vram'), v(kilo, 'vram'), v(old, 'vram')], [16, 16, 4]);
+  assert.deepEqual([v(msi, 'chip'), v(old, 'chip'), v(mk('Sapphire Radeon RX 7900 XTX'), 'chip')], ['RTX 5070 Ti', 'GTX 1650 Super', 'RX 7900 XTX']);
+  assert.equal(v(old, 'memType'), 'GDDR6');
+  assert.equal(fmtFeature(F.clock, 2.572), '2.572 GHz');
+
+  // Ordenar por frecuencia (mayor primero por defecto; sin dato al final) y filtrar por umbral y por chip.
+  const list = [pny, odd, kilo, zotac, msi, old];
+  const t = (view) => viewOptions(list, view, 'gpu', S).map((p) => list.indexOf(p));
+  assert.deepEqual(t({ sort: 'f:clock' }), [0, 2, 3, 1, 4, 5]);
+  assert.deepEqual(t({ sort: 'f:clock', dir: 'asc' }), [1, 3, 2, 0, 4, 5]);
+  assert.deepEqual(t({ feats: { clock: '2.48' } }), [0, 2, 3]);
+  assert.deepEqual(t({ feats: { chip: 'rtx 5070 ti', vram: 16 } }), [0, 1, 2, 3, 4]);
+
+  // Comunes: al menos dos opciones con dato y dos valores distintos; umbrales con cuántas cumplen.
+  const common = Object.fromEntries(commonFeatures(list, 'gpu').map((f) => [f.key, f]));
+  assert.deepEqual(common.chip.values, [{ value: 'RTX 5070 Ti', count: 5 }, { value: 'GTX 1650 Super', count: 1 }]);
+  assert.deepEqual(common.vram.values, [{ value: 4, count: 6 }, { value: 16, count: 5 }]);
+  assert.deepEqual(common.clock.values.map((x) => x.count), [4, 3, 2, 1]);
+  assert.equal(commonFeatures([pny, kilo], 'gpu').some((f) => f.key === 'vram'), false); // un solo valor: no sirve para filtrar
+});
+
+test('características: CPU, RAM, almacenamiento, fuente, monitor y disipador', async () => {
+  const { featuresFor, featureValue } = await import('../public/logic.js');
+  const vals = (cat, p) => Object.fromEntries(featuresFor(cat).map((f) => [f.key, featureValue(f, p, cat)]));
+  const cpu = vals('cpu', mk('AMD Ryzen 7 9800X3D 8-Core, 16-Thread Desktop Processor', { specs: { 'CPU Speed': '4.7 GHz' }, bullets: ['Max boost clock up to 5.2 GHz'] }));
+  assert.deepEqual([cpu.cores, cpu.clock, cpu.socket], [8, 4.7, 'AM5']); // la spec da la base; las viñetas solo si no hay nada
+  const ram = vals('ram', mk('Silicon Power 32GB (2x16GB) XPOWER Zenith DDR5-6000 (PC5-48000) CL30 1.35V', { specs: { 'Memory Speed': '6000 MT/s (PC5-48000)' } }));
+  assert.deepEqual([ram.capacity, ram.speed, ram.cl, ram.memType], [32, 6000, 30, 'DDR5']);
+  const ssd = vals('storage', mk('Ediloca SSD 1TB NVMe PCIe 5.0x4, Up to 14,000MB/s Read, 1TB SSD with 1GB LPDDR4 DRAM', { specs: { 'Digital Storage Capacity': '1 TB' } }));
+  assert.deepEqual([ssd.capacity, ssd.pcie, ssd.read, ssd.iface], [1000, 'PCIe 5.0', 14000, 'NVMe']);
+  const psu = vals('psu', mk('ASRock Steel Legend SL-850P 850W ATX Power Supply, 80 Plus Platinum, Fully Modular'));
+  assert.deepEqual([psu.power, psu.cert, psu.modular], [850, '80 Plus Platinum', 'Totalmente modular']);
+  const mon = vals('monitor', mk('Monitor Gamer Janus 27" VA Full HD 200Hz', { specs: { 'Tiempo de respuesta': '1 ms', 'Resolución': '1920 × 1080 (Full HD)' } }));
+  assert.deepEqual([mon.size, mon.hz, mon.res, mon.panel, mon.response], [27, 200, '1080p', 'VA', 1]);
+  assert.equal(vals('monitor', mk('INNOCN 24.5" 1440P 240Hz Gaming Monitor Fast IPS', { specs: { Resolution: 'QHD Wide 1440p' } })).res, '1440p');
+  const air = vals('cooler', mk('Thermalright Phantom Spirit 120SE CPU Air Cooler', { specs: { 'Cooling Method': 'Air' } }));
+  const aio = vals('cooler', mk('ARCTIC Liquid Freezer III 360 A-RGB AIO CPU Cooler, 360mm radiator'));
+  assert.deepEqual([air.kind, air.radiator, aio.kind, aio.radiator], ['Aire', null, 'Líquida (AIO)', 360]);
+});
+
+test('discos: DRAM, tipo, NAND, controlador, disipador, velocidades y capacidad comercial', async () => {
+  const { featuresFor, featureValue } = await import('../public/logic.js');
+  const vals = (p) => Object.fromEntries(featuresFor('storage').map((f) => [f.key, featureValue(f, p, 'storage')]));
+  const lexar = vals(mk('Lexar 1TB NM1090 PRO NVMe SSD, 14,000/10,000 MB/s, M.2 2280, PCIe Gen 5', { bullets: ['DRAM Cache and SLC Dynamic Cache, 700TBW (1TB), 1400TBW (2TB)'] }));
+  assert.deepEqual([lexar.read, lexar.write, lexar.dram, lexar.tbw, lexar.pcie, lexar.heatsink], [14000, 10000, 'Sí', 700, 'PCIe 5.0', 'No']);
+  const kc = vals(mk('Kingston KC3000 PCIe 4.0 NVMe M.2 1024 GB SSD'));
+  assert.equal(kc.capacity, 1000); // 1024 GB se vende como 1 TB
+  const z540 = vals(mk('TEAMGROUP T-Force Z540 1TB Gen5x4 DRAM SLC Cache 3D TLC NAND NVMe Phison E26 PCIe M.2 2280 Gaming SSD with Ultra-Thin Graphene Heatsink'));
+  assert.deepEqual([z540.pcie, z540.nand, z540.controller, z540.heatsink], ['PCIe 5.0', 'TLC', 'Phison E26', 'Sí']);
+  const lp = vals(mk('Corsair MP600 PRO LPX 1TB M.2 NVMe PCIe x4 Gen4 SSD (Up to 7,100MB/sec Sequential Read & 5,800MB/sec Sequential Write)'));
+  assert.deepEqual([lp.read, lp.write], [7100, 5800]);
+  // «outperforms DRAM-less drives» no es «sin DRAM»; HMB sí lo es.
+  assert.equal(vals(mk('1TB PCIe 3.0 NVMe SSD', { bullets: ['dedicated DRAM cache—outperforms DRAM-less drives'] })).dram, 'Sí');
+  assert.equal(vals(mk('Crucial P3 Plus 1TB PCIe Gen4 NVMe', { bullets: ['DRAM-less design with HMB'] })).dram, 'No');
+  assert.equal(vals(mk('Ediloca SSD 1TB with 1GB LPDDR4 DRAM')).dramType, 'LPDDR4');
+  assert.equal(vals(mk('GIGABYTE AORUS Gen4 7300 SSD 1TB (w/o Heat Spreader) PCIe 4.0 NVMe')).heatsink, 'No');
+  // Lo editado a mano manda.
+  assert.equal(vals(mk('Crucial T500 1TB PCIe Gen4 NVMe', { tags: { dram: 'No', controller: 'Phison E25' } })).controller, 'Phison E25');
+});
+
+test('filtros de discos: todas las capacidades y conteos dinámicos según los demás filtros', async () => {
+  const { commonFeatures, viewOptions } = await import('../public/logic.js');
+  const list = [
+    mk('A 1TB NVMe PCIe 5.0 DRAM cache'), mk('B 2TB NVMe PCIe 5.0 DRAM cache'), mk('C 2TB NVMe PCIe 4.0 DRAM-less HMB'),
+    mk('D 1TB NVMe PCIe 4.0 DRAM cache'),
+  ];
+  const by = (v) => Object.fromEntries(commonFeatures(list, 'storage', v).map((f) => [f.key, f.values]));
+  assert.deepEqual(by({}).capacity, [{ value: 1000, count: 2 }, { value: 2000, count: 2 }]); // valores exactos, no umbrales
+  const f = by({ feats: { pcie: 'PCIe 4.0' } });
+  assert.deepEqual(f.capacity, [{ value: 1000, count: 1 }, { value: 2000, count: 1 }]);
+  assert.deepEqual(f.dram, [{ value: 'Sí', count: 1 }, { value: 'No', count: 1 }]);
+  assert.deepEqual(f.pcie.map((x) => x.count), [2, 2]); // su propio filtro no se cuenta
+  assert.deepEqual(viewOptions(list, { feats: { capacity: 2000, dram: 'Sí' } }, 'storage').map((p) => p.title[0]), ['B']);
+  // Con una sola capacidad igual se ofrece (always).
+  assert.deepEqual(commonFeatures(list.filter((p) => /1TB/.test(p.title)), 'storage').find((x) => x.key === 'capacity').values, [{ value: 1000, count: 2 }]);
 });

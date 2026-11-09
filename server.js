@@ -34,12 +34,13 @@ async function readBody(req, limit = 5 * 1024 * 1024) {
 // Empaqueta el conector (marcador) en un solo script: reglas compartidas + lógica del conector.
 // La versión es un hash del código: si cambian el parser o el conector, el marcador instalado queda desactualizado.
 async function connectorVersion() {
-  const code = (await readFile(path.join(PUBLIC, 'amazon-parse.js'), 'utf8')) + (await readFile(path.join(PUBLIC, 'connector.src.js'), 'utf8'));
+  const code = (await readFile(path.join(PUBLIC, 'amazon-parse.js'), 'utf8')) + (await readFile(path.join(PUBLIC, 'stores.js'), 'utf8')) + (await readFile(path.join(PUBLIC, 'connector.src.js'), 'utf8'));
   return createHash('sha1').update(code).digest('hex').slice(0, 8);
 }
 
 async function buildConnector(appOrigin) {
-  const parse = (await readFile(path.join(PUBLIC, 'amazon-parse.js'), 'utf8')).replace(/^export /gm, '');
+  const parse = (await readFile(path.join(PUBLIC, 'amazon-parse.js'), 'utf8')).replace(/^export /gm, '')
+    + '\n' + (await readFile(path.join(PUBLIC, 'stores.js'), 'utf8')).replace(/^export /gm, '');
   const src = (await readFile(path.join(PUBLIC, 'connector.src.js'), 'utf8'))
     .replace('const VERSION = __VERSION__;', `const VERSION = ${JSON.stringify(await connectorVersion())};`)
     .replace('const APP = __APP__;', `const APP = ${JSON.stringify(appOrigin)};`)
