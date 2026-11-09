@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readStorePrice, storePriceNumber, storeOfUrl, urlFitsStore, storeBlocked } from '../public/stores.js';
-import { storeRows, shownStores, setStorePrice, amazonStorePrice, ownAmazonStore, DEFAULT_SETTINGS } from '../public/logic.js';
+import { storeRows, shownStores, setStorePrice, amazonStorePrice, ownAmazonStore, isDeal, lineCost, viewOptions, DEFAULT_SETTINGS } from '../public/logic.js';
 
 const ld = (o) => `<script type="application/ld+json">${JSON.stringify(o)}</script>`;
 
@@ -109,4 +109,52 @@ test('setStorePrice: guarda el anterior y marca error sin precio', () => {
   setStorePrice(row, { price: null }, 'c');
   assert.equal(row.price, 90);
   assert.equal(row.error, 'La ficha no mostró precio');
+});
+
+test('storeRows: tiendas de EE. UU. con envío y sales tax de Miami, y oferta', () => {
+  const p = {
+    manual: true, title: 'x',
+    stores: [
+      { store: 'walmart', url: 'https://www.walmart.com/ip/1', price: 200, currency: 'USD', shipping: 10, listPrice: 250 },
+      { store: 'target', url: 'https://www.target.com/p/-/A-1', price: 205, currency: 'USD', shipping: 0, listPrice: 205 },
+    ],
+  };
+  const rows = storeRows(p, S);
+  const wm = rows.find((r) => r.store === 'walmart');
+  assert.equal(wm.tax, 14);
+  assert.equal(wm.total, 224);
+  assert.equal(wm.usd, 224);
+  assert.equal(wm.deal, true);
+  const tg = rows.find((r) => r.store === 'target');
+  assert.equal(tg.total, 219.35);
+  assert.equal(tg.deal, false); // precio de lista igual: no es oferta
+  assert.deepEqual(shownStores(p, S).filter((r) => r.best).map((r) => r.store), ['target']);
+});
+
+test('isDeal, filtro «En oferta» y tax en productos de tiendas de EE. UU.', () => {
+  const deal = { id: 'a', manual: true, salesTax: true, market: 'miami', title: 'A', price: 100, shipping: 5, listPrice: 120 };
+  const viaStore = { id: 'b', title: 'B', price: 100, stores: [{ store: 'newegg', url: 'u', price: 90, listPrice: 95 }] };
+  const plain = { id: 'c', title: 'C', price: 100, stores: [{ store: 'newegg', url: 'u', price: 90, listPrice: null }] };
+  assert.equal(isDeal(deal), true);
+  assert.equal(isDeal(viaStore), true);
+  assert.equal(isDeal(plain), false);
+  assert.deepEqual(viewOptions([deal, viaStore, plain], { deals: true }, 'storage', S).map((p) => p.id).sort(), ['a', 'b']);
+  const c = lineCost(deal, S);
+  assert.equal(c.importFees, 7);
+  assert.equal(c.total, 112);
+  assert.equal(lineCost({ ...deal, salesTax: false }, S).total, 105); // manual sin tax: como antes
+});
+
+test('setStorePrice: guarda el precio de lista solo si es mayor', () => {
+  const row = { store: 'walmart', url: 'u', price: 100, currency: 'USD' };
+  setStorePrice(row, { price: 90, currency: 'USD', listPrice: 120 }, 'a');
+  assert.equal(row.listPrice, 120);
+  setStorePrice(row, { price: 90, currency: 'USD', listPrice: 90 }, 'b');
+  assert.equal(row.listPrice, null);
+});
+
+test('storeOfUrl: Walmart, Target y B&H', () => {
+  assert.equal(storeOfUrl('https://www.walmart.com/ip/x/123'), 'walmart');
+  assert.equal(storeOfUrl('https://www.target.com/p/x/-/A-1'), 'target');
+  assert.equal(storeOfUrl('https://www.bhphotovideo.com/c/product/1-REG/x.html'), 'bhphoto');
 });

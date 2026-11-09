@@ -1,4 +1,4 @@
-import { CATEGORIES, CAT, STATUS, PICKS, PICK_FIXED, pickLevel, pickOf, isFixed, sortByPick, sortsFor, dirLabel, OPTION_AVAIL, normalizeView, viewFiltered, viewOptions, featuresFor, featureValue, fmtFeature, commonFeatures, DEFAULT_SETTINGS, detectTags, estimateWatts, wattsIsGuess, BASE_WATTS, selectedLines, lineCost, totals, checks, shortTitle, toMarkdown, missingFields, needsRefresh, applySession, applyEdits, EDITABLE_FIELDS, editedLabels, isSurgeProtector, paidTotal, paidChange, findPaid, orderQuery, isMiami, marketLabel, MARKETS, marketOf, storeRows, shownStores, setStorePrice, amazonStorePrice, ownAmazonStore } from './logic.js';
+import { CATEGORIES, CAT, STATUS, PICKS, PICK_FIXED, pickLevel, pickOf, isFixed, sortByPick, sortsFor, dirLabel, OPTION_AVAIL, normalizeView, viewFiltered, viewOptions, featuresFor, featureValue, fmtFeature, commonFeatures, DEFAULT_SETTINGS, detectTags, estimateWatts, wattsIsGuess, BASE_WATTS, selectedLines, lineCost, totals, checks, shortTitle, toMarkdown, missingFields, needsRefresh, applySession, applyEdits, EDITABLE_FIELDS, editedLabels, isSurgeProtector, paidTotal, paidChange, findPaid, orderQuery, isMiami, marketLabel, MARKETS, marketOf, storeRows, shownStores, setStorePrice, amazonStorePrice, ownAmazonStore, isDeal } from './logic.js';
 import { STORES, STORE_KEYS, storeOfHost, storeOfUrl, urlFitsStore } from './stores.js';
 import { regionOf } from './amazon-parse.js';
 import { extractAsin } from './amazon-parse.js';
@@ -982,6 +982,7 @@ function cartItem(p, cat, s) {
   if (isMiami(p)) flags.push('<span class="chip info" title="Envío a tu dirección en Miami">Miami</span>');
   else if (!p.manual && p.shipsToCO === false) flags.push('<span class="chip err">No envía a CO</span>');
   if (p.manual) flags.push(`<span class="chip">${esc(p.store || 'Manual')}</span>`);
+  if (isDeal(p)) flags.push('<span class="chip deal">Oferta</span>');
   return `<li class="ci ${isBusy(p) ? 'loading' : ''}">
     <button class="ci-thumb" data-action="goto" data-cat="${cat}" tabindex="-1" aria-hidden="true">${thumb(p, cat)}</button>
     <div class="ci-info">
@@ -1160,6 +1161,7 @@ function chipsFor(p, cat) {
   const out = [];
   const st = p.status || 'buy';
   out.push(`<span class="chip ${st === 'bought' ? 'ok' : st === 'planned' ? 'planned' : 'accent'}">${STATUS[st].short}</span>`);
+  if (isDeal(p)) out.push('<span class="chip deal" title="Precio por debajo del precio de lista en alguna tienda">Oferta</span>');
   if (p.manual) out.push(`<span class="chip">${esc(p.store || 'Manual')}</span>`);
   else {
     if (isMiami(p)) out.push(`<span class="chip info" title="Precio con envío a tu dirección en Miami. Solo se actualiza cuando tu sesión de Amazon entrega en Miami.">Miami${p.deliverTo && p.region === 'us' ? ` · ${esc(p.deliverTo)}` : ''}</span>`);
@@ -1239,22 +1241,25 @@ function storeTrend(r) {
   const up = r.price > r.prev.price;
   return `<span class="delta ${up ? 'up' : 'down'}" title="Antes: ${esc(fmtStorePrice(r.prev.price, r.currency))}">${up ? '▲' : '▼'}</span>`;
 }
+const taxPct = () => `${Math.round((S().miamiTax ?? 0.07) * 1000) / 10} %`;
 function storeTip(r) {
   const st = STORES[r.store];
-  return [`${st.name} · ${st.sub}`, st.basis, r.currency === 'COP' ? `≈ ${usd(r.usd)} con la TRM de Ajustes` : '', r.fetchedAt ? `Leído ${ago(r.fetchedAt)}` : 'Escrito a mano', r.error ? `Última lectura: ${r.error}` : '', 'Abre la ficha en otra pestaña'].filter(Boolean).join('\n');
+  const miami = r.total != null ? `Precio ${usd(r.price)} + envío ${r.shipping ? usd(r.shipping) : 'gratis'} + tax ${usd(r.tax)} (${taxPct()}) = ${usd(r.total)}` : '';
+  return [`${st.name} · ${st.sub}`, st.basis, miami, r.deal ? `En oferta: antes ${usd(r.listPrice)}` : '', r.note || '', r.currency === 'COP' ? `≈ ${usd(r.usd)} con la TRM de Ajustes` : '', r.fetchedAt ? `Leído ${ago(r.fetchedAt)}` : 'Escrito a mano', r.error ? `Última lectura: ${r.error}` : '', 'Abre la ficha en otra pestaña'].filter(Boolean).join('\n');
 }
 function storesStrip(p, compact = false) {
   const rows = shownStores(p, S());
   if (!rows.length || (rows.length === 1 && rows[0].own)) return '';
   if (compact) {
-    return `<div class="schips" aria-label="Precios por tienda">${rows.map((r) => `<a class="schip ${r.best ? 'best' : ''}" href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(storeTip(r))}" aria-label="${esc(`${STORES[r.store].name}: ${fmtStorePrice(r.price, r.currency)}${r.best ? ', el más bajo' : ''}`)}">${STORE_LOGOS[r.store]}<span class="num">${fmtStorePrice(r.price, r.currency).replace('US$', '$')}</span></a>`).join('')}</div>`;
+    return `<div class="schips" aria-label="Precios por tienda">${rows.map((r) => `<a class="schip ${r.best ? 'best' : ''}" href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(storeTip(r))}" aria-label="${esc(`${STORES[r.store].name}: ${fmtStorePrice(r.total ?? r.price, r.currency)}${r.deal ? ', en oferta' : ''}${r.best ? ', el más bajo' : ''}`)}">${STORE_LOGOS[r.store]}<span class="num">${fmtStorePrice(r.total ?? r.price, r.currency).replace('US$', '$')}</span>${r.deal ? '<span class="deal-dot" aria-hidden="true">%</span>' : ''}</a>`).join('')}</div>`;
   }
   return `<div class="stores" role="table" aria-label="Precios por tienda">
     ${rows.map((r) => `<a class="srow ${r.best ? 'best' : ''} ${r.error ? 'stale' : ''}" role="row" href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(storeTip(r))}">
       <span role="cell" class="slogo-cell">${STORE_LOGOS[r.store]}</span>
       <span role="cell" class="sname"><b>${esc(STORES[r.store].name)}</b><small>${esc(STORES[r.store].sub)}${r.own ? ' · este producto' : ''}</small></span>
-      <span role="cell" class="sprice"><b class="num">${fmtStorePrice(r.price, r.currency)}</b>${storeTrend(r)}
-        <small>${r.best ? '<span class="best-t">Más bajo</span>' : ''}${r.currency === 'COP' ? `${r.best ? ' · ' : ''}≈ ${usd(r.usd)}` : ''}${r.error ? ' <span class="err-t" aria-label="Error en la última lectura">!</span>' : ''}</small></span>
+      <span role="cell" class="sprice"><b class="num">${fmtStorePrice(r.total ?? r.price, r.currency)}</b>${storeTrend(r)}
+        ${r.total != null ? `<small class="num">${usd(r.price).replace('US$', '$')} + ${r.shipping ? usd(r.shipping).replace('US$', '$') : 'envío 0'} + tax ${usd(r.tax).replace('US$', '$')}</small>` : ''}
+        <small>${r.deal ? `<span class="deal-t">Oferta <s>${usd(r.listPrice).replace('US$', '$')}</s></span>${r.best ? ' · ' : ''}` : ''}${r.best ? '<span class="best-t">Más bajo</span>' : ''}${r.currency === 'COP' ? `${r.best ? ' · ' : ''}≈ ${usd(r.usd)}` : ''}${r.error ? ' <span class="err-t" aria-label="Error en la última lectura">!</span>' : ''}</small></span>
     </a>`).join('')}
   </div>`;
 }
@@ -1321,7 +1326,7 @@ function setOptView(cat, patch) {
   const saved = Object.fromEntries(Object.entries(optViews).map(([k, v]) => [k, { ...v, q: '' }]));
   try { localStorage.setItem(VIEW_KEY, JSON.stringify(saved)); } catch { /* sin almacenamiento: solo en memoria */ }
 }
-const NO_FILTERS = { q: '', minPick: 0, avail: 'all', maxTotal: null, underThreshold: false, feats: {} };
+const NO_FILTERS = { q: '', minPick: 0, avail: 'all', maxTotal: null, underThreshold: false, deals: false, feats: {} };
 
 // Con una sola opción no hay barra de filtros, así que tampoco se aplican.
 const shownOptions = (cat) => (slot(cat).options.length < 2 ? slot(cat).options : viewOptions(slot(cat).options, optView(cat), cat, S()));
@@ -1396,6 +1401,7 @@ function optTools(cat, n, feats) {
     <label class="opt-field">Mostrar <select ${attrs('avail')}>${opts(Object.entries(OPTION_AVAIL), v.avail)}</select></label>
     <label class="opt-field">Total hasta US$ <input type="number" min="0" step="10" inputmode="decimal" ${attrs('maxTotal')} value="${esc(optViews[cat]?.maxTotal ?? '')}"></label>
     <label class="opt-check" title="Pedidos de menos de US$${S().threshold}: no pagan IVA al importar"><input type="checkbox" ${attrs('underThreshold')} ${v.underThreshold ? 'checked' : ''}> Sin IVA (&lt; US$${S().threshold})</label>
+    <label class="opt-check" title="Con precio por debajo de su precio de lista en alguna tienda"><input type="checkbox" ${attrs('deals')} ${v.deals ? 'checked' : ''}> En oferta</label>
     ${featSel ? `<div class="opt-feats" role="group" aria-label="Filtrar por características" data-cat="${cat}">${featSel}</div>` : ''}
     <div class="opt-status" data-cat="${cat}" role="status">${optStatus(cat, n)}</div>
   </div>`;
@@ -1765,7 +1771,7 @@ function editSection(p, cat) {
 }
 
 // Enlaces y precios en cada tienda (opcionales). La fila de Amazon del destino del producto es el propio producto.
-const STORE_HINT = { 'amazon-co': 'https://www.amazon.com/dp/…', 'amazon-us': 'https://www.amazon.com/dp/…', newegg: 'https://www.newegg.com/…/p/N82E…', bestbuy: 'https://www.bestbuy.com/site/…', microcenter: 'https://www.microcenter.com/product/…', mercadolibre: 'https://www.mercadolibre.com.co/…' };
+const STORE_HINT = { 'amazon-co': 'https://www.amazon.com/dp/…', 'amazon-us': 'https://www.amazon.com/dp/…', newegg: 'https://www.newegg.com/…/p/N82E…', bestbuy: 'https://www.bestbuy.com/product/…', walmart: 'https://www.walmart.com/ip/…', target: 'https://www.target.com/p/…', bhphoto: 'https://www.bhphotovideo.com/c/product/…', microcenter: 'https://www.microcenter.com/product/…', mercadolibre: 'https://www.mercadolibre.com.co/…' };
 function storesSection(p) {
   const own = ownAmazonStore(p);
   const rows = storeRows(p, S());
@@ -1779,10 +1785,13 @@ function storesSection(p) {
       return `<div class="se-row">${head}
         <input type="url" class="se-url" name="st_url_${key}" value="${esc(r?.url || '')}" placeholder="${esc(STORE_HINT[key])}" aria-label="Enlace en ${esc(st.name)}">
         <label class="se-price"><span>${st.currency === 'COP' ? 'COP' : 'US$'}</span><input type="number" min="0" step="${st.currency === 'COP' ? 1 : 0.01}" name="st_price_${key}" value="${r?.price ?? ''}" aria-label="Precio en ${esc(st.name)}"></label>
+        ${st.region === 'us' ? `<label class="se-price se-extra"><span>Envío</span><input type="number" min="0" step="0.01" name="st_ship_${key}" value="${r?.shipping ?? ''}" placeholder="0" aria-label="Envío a Miami en ${esc(st.name)}"></label>
+        <label class="se-price se-extra"><span>Antes</span><input type="number" min="0" step="0.01" name="st_list_${key}" value="${r?.listPrice ?? ''}" aria-label="Precio de lista (sin oferta) en ${esc(st.name)}"></label>` : ''}
+        ${r?.total != null ? `<small class="se-status num">Con envío y tax: ${usd(r.total)}${r.deal ? ' · <span class="deal-t">Oferta</span>' : ''}${r.note ? ` · ${esc(r.note)}` : ''}</small>` : ''}
         ${status ? `<small class="se-status">${status}</small>` : ''}
       </div>`;
     }).join('')}</div>
-    <small class="muted">Opcionales: se muestran en la tarjeta los que tengan enlace y precio, y se marca el más bajo. El precio se escribe a mano o se lee con «$ Actualizar precios». Amazon con envío a Medellín compara el total con envío y cargos; con envío a Miami, precio + envío. No cambian el total del armado.</small>
+    <small class="muted">Opcionales: se muestran en la tarjeta los que tengan enlace y precio, y se marca el más bajo. El precio se escribe a mano o se lee con «$ Actualizar precios». Amazon con envío a Medellín compara el total con envío y cargos; las tiendas con envío a Miami (ZIP 33186), precio + envío + sales tax (${taxPct()}, en Ajustes). «Antes» es el precio sin oferta. No cambian el total del armado.</small>
   </div>`;
 }
 
@@ -1804,6 +1813,12 @@ function readStoresForm(f, p) {
     if (price !== (old?.price ?? null)) {
       if (old?.price != null && price != null) row.prev = { price: old.price, at: old.fetchedAt || null };
       Object.assign(row, { price, currency: STORES[key].currency, fetchedAt: null, error: null });
+    }
+    for (const [field, name] of [['shipping', 'st_ship_'], ['listPrice', 'st_list_']]) {
+      const el = f.elements[name + key];
+      if (!el) continue;
+      const v = el.value.trim();
+      row[field] = v === '' ? null : Math.max(0, Number(v));
     }
     out.push(row);
   }

@@ -59,10 +59,12 @@ Cada producto tiene un **destino** (✎ Detalles → «Destino del envío»): **
 
 ## Comercios: precio en varias tiendas
 
-Cada producto puede tener (opcional) su enlace y precio en **Amazon** (envío a Medellín), **Amazon USA** (envío a Miami), **Newegg**, **Best Buy**, **Micro Center** y **Mercado Libre** (COP). Se editan en ✎ Detalles → «Comercios»; la fila de Amazon del destino del producto es el propio producto.
+Cada producto puede tener (opcional) su enlace y precio en **Amazon** (envío a Medellín), **Amazon USA** (envío a Miami), **Newegg**, **Best Buy**, **Walmart**, **Target**, **B&H**, **Micro Center** y **Mercado Libre** (COP). Se editan en ✎ Detalles → «Comercios»; la fila de Amazon del destino del producto es el propio producto.
 
 - La tarjeta muestra abajo las tiendas con enlace y precio (logo, precio, ▲/▼ desde la lectura anterior) y marca **el más bajo** (COP se compara en US$ con la TRM). No cambian el total del armado.
-- Base de cada precio: Amazon a Medellín = total con envío y cargos; Amazon a Miami = precio + envío (sin sales tax); las demás = precio de venta en la tienda.
+- Base de cada precio: Amazon a Medellín = total con envío y cargos; Amazon USA y las tiendas de EE. UU. = precio + envío a Miami (ZIP 33186) + sales tax de Miami-Dade (6 % Florida + 1 % condado = 7 %, en Ajustes); Mercado Libre = precio en COP.
+- **Ofertas:** cada tienda puede guardar el precio «Antes» (precio de lista, «Comp. Value», «reg»). Si el precio está por debajo, la fila y la tarjeta se marcan **Oferta**, y el filtro «En oferta» de las opciones deja solo esos productos.
+- Los productos que solo existen en tiendas de EE. UU. se guardan como manuales con destino Miami (`salesTax: true`): su total incluye envío y sales tax.
 - **$ Actualizar precios** relee el precio de todos los enlaces del armado. Esas tiendas bloquean las consultas del servidor (Cloudflare y similares), así que se leen **en su propia pestaña con el mismo marcador**: el modal tiene un botón «Abrir …» por tienda; ahí pulsas el marcador y lo pendiente sigue solo. Amazon se lee con tu sesión y solo para el destino al que entrega.
 - Requiere reinstalar el marcador (🔌 Conector): el anterior solo funciona en amazon.com.
 

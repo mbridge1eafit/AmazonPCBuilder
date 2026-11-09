@@ -267,6 +267,7 @@ a.ptitle:hover { text-decoration: underline; }
 .chip.err { background: var(--err-soft); color: var(--err); }
 .chip.info { background: var(--info-soft); color: var(--info); }
 .chip.accent { background: var(--accent-soft); color: var(--accent); }
+.chip.deal { background: var(--err-soft); color: var(--err); font-weight: 600; }
 .chip.planned { background: var(--planned-soft); color: var(--planned); }
 .chip.pick1 { background: var(--surface-2); color: var(--muted); }
 .chip.pick2 { background: var(--warn-soft); color: var(--warn); }
@@ -671,6 +672,9 @@ details.acc.bl .acc-meta { font-weight: 500; }
 .srow.best { border-color: color-mix(in srgb, var(--ok) 55%, transparent); background: var(--ok-soft); }
 .srow.best .sprice b, .best-t { color: var(--ok); font-weight: 700; }
 .srow.stale .sprice b { color: var(--muted); }
+.deal-t { color: var(--err); font-weight: 600; }
+.deal-t s { color: var(--muted); font-weight: 400; }
+.deal-dot { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--err); color: #fff; font-size: 9px; font-weight: 700; }
 .schips { display: flex; flex-wrap: wrap; gap: 4px; }
 .schip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px 2px 2px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); text-decoration: none; background: var(--surface-2); }
 .schip .slogo { width: 18px; height: 18px; border-radius: 50%; }
@@ -687,10 +691,11 @@ details.acc.bl .acc-meta { font-weight: 500; }
 .se-own { grid-column: 3 / -1; font-size: 12.5px; }
 .se-price { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .se-price input { width: 100%; min-width: 0; }
+.se-extra { grid-column: 4; }
 .se-status { grid-column: 3 / -1; font-size: 11.5px; color: var(--muted); margin-top: -2px; }
 @media (max-width: 640px) {
   .se-row { grid-template-columns: 24px minmax(0, 1fr); }
-  .se-url, .se-price, .se-own, .se-status { grid-column: 1 / -1; }
+  .se-url, .se-price, .se-extra, .se-own, .se-status { grid-column: 1 / -1; }
 }
 
 /* modal «Actualizar precios» */

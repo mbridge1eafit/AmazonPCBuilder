@@ -66,5 +66,8 @@ export const STORE_LOGOS = {
   newegg: logo('<ellipse cx="12" cy="12.6" rx="6.6" ry="8" fill="#f68b1e"/><path d="M9.2 16V10.4m0 1.6c.5-1.3 1.5-1.9 2.6-1.9 1.4 0 2.2.9 2.2 2.5V16" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>', '#14396b'),
   bestbuy: logo('<path d="M4 7.5 13.5 4.2 20 10.7v8.6H4z" fill="#ffe000"/><circle cx="7.4" cy="10.3" r="1.3" fill="#0046be"/><path d="M9.6 13.6h7.2M9.6 16.4h5" stroke="#0a0a0a" stroke-width="1.5" stroke-linecap="round"/>', '#0046be'),
   microcenter: logo('<path d="M4.5 17.5V7.2l3.8 6 3.8-6v10.3" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M20 9.2a3.6 3.6 0 1 0 0 6.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>', '#d0202e'),
+  walmart: logo([0, 60, 120, 180, 240, 300].map((a) => `<rect x="11" y="3.2" width="2" height="6.4" rx="1" fill="#ffc220" transform="rotate(${a} 12 12)"/>`).join(''), '#0071dc'),
+  target: logo('<circle cx="12" cy="12" r="8.4" fill="#cc0000"/><circle cx="12" cy="12" r="5.6" fill="#fff"/><circle cx="12" cy="12" r="2.9" fill="#cc0000"/>'),
+  bhphoto: logo('<text x="12" y="15.6" text-anchor="middle" font-family="Arial, sans-serif" font-size="9.5" font-weight="700" fill="#fff">B&amp;H</text>', '#1a1a1a'),
   mercadolibre: logo('<ellipse cx="12" cy="12" rx="8.6" ry="6.2" fill="#fff" stroke="#2d3277" stroke-width="1.4"/><path d="M5.6 11.4c1.5.8 2.6.6 4.1-.7l1.6-1.3c.6-.5 1.4-.5 2 0l4.9 3.6M8.4 13.4l1.4 1.1m.6-2.2 2 1.6m0-2.6 2 1.6" fill="none" stroke="#2d3277" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>', '#ffe600'),
 };

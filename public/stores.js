@@ -4,12 +4,16 @@
 // Sin imports. Los nombres de nivel superior llevan prefijo para no chocar con amazon-parse.js en el marcador.
 
 // Amazon aparece dos veces: con envío a Medellín (importado) y con envío a Miami (dirección en EE. UU.).
+// region 'us': se compra con entrega en Miami (ZIP 33186): se compara precio + envío + sales tax de Miami-Dade.
 export const STORES = {
   'amazon-co': { name: 'Amazon', sub: 'envío a Medellín', region: 'co', amazon: true, currency: 'USD', host: /(^|\.)amazon\.com$/i, basis: 'Total con envío y cargos de importación a Colombia' },
-  'amazon-us': { name: 'Amazon USA', sub: 'envío a Miami', region: 'us', amazon: true, currency: 'USD', host: /(^|\.)amazon\.com$/i, basis: 'Precio + envío a Miami (sin sales tax)' },
-  newegg: { name: 'Newegg', sub: 'EE. UU.', currency: 'USD', host: /(^|\.)newegg\.com$/i, basis: 'Precio de venta en la tienda' },
-  bestbuy: { name: 'Best Buy', sub: 'EE. UU.', currency: 'USD', host: /(^|\.)bestbuy\.com$/i, basis: 'Precio de venta en la tienda' },
-  microcenter: { name: 'Micro Center', sub: 'EE. UU.', currency: 'USD', host: /(^|\.)microcenter\.com$/i, basis: 'Precio de venta (de la sede elegida en la tienda)' },
+  'amazon-us': { name: 'Amazon USA', sub: 'envío a Miami', region: 'us', amazon: true, currency: 'USD', host: /(^|\.)amazon\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  newegg: { name: 'Newegg', sub: 'envío a Miami', region: 'us', currency: 'USD', host: /(^|\.)newegg\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  bestbuy: { name: 'Best Buy', sub: 'envío a Miami', region: 'us', currency: 'USD', host: /(^|\.)bestbuy\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  walmart: { name: 'Walmart', sub: 'envío a Miami', region: 'us', currency: 'USD', host: /(^|\.)walmart\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  target: { name: 'Target', sub: 'envío a Miami', region: 'us', currency: 'USD', host: /(^|\.)target\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  bhphoto: { name: 'B&H', sub: 'envío a Miami', region: 'us', currency: 'USD', host: /(^|\.)bhphotovideo\.com$/i, basis: 'Precio + envío a Miami + sales tax' },
+  microcenter: { name: 'Micro Center', sub: 'EE. UU.', region: 'us', currency: 'USD', host: /(^|\.)microcenter\.com$/i, basis: 'Precio (de la sede elegida en la tienda) + envío + sales tax' },
   mercadolibre: { name: 'Mercado Libre', sub: 'Colombia', currency: 'COP', host: /(^|\.)mercadolibre\.com\.co$/i, basis: 'Precio de venta en Colombia (COP)' },
 };
 export const STORE_KEYS = Object.keys(STORES);

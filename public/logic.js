@@ -328,7 +328,7 @@ export function lineCost(p, s = DEFAULT_SETTINGS) {
   if (price == null) return { qty, price: null, subtotal: null, shipping: null, importFees: null, total: null, overThreshold: false, feesSource: null };
   const subtotal = price * qty;
   const shipping = p.shipping != null ? Number(p.shipping) : null;
-  if (isMiami(p) && !p.manual) {
+  if (isMiami(p) && (!p.manual || p.salesTax)) {
     // Miami: compra en EE. UU., sin cargos de importación. Sales tax estimado (Miami-Dade 7 %) sobre el producto;
     // el exacto solo lo da el checkout.
     const rate = s.miamiTax ?? DEFAULT_SETTINGS.miamiTax;
@@ -974,11 +974,12 @@ export function normalizeView(v, cat) {
     avail: Object.hasOwn(OPTION_AVAIL, v?.avail ?? '') ? v.avail : 'all',
     maxTotal: v?.maxTotal != null && v.maxTotal !== '' && max > 0 ? max : null,
     underThreshold: v?.underThreshold === true,
+    deals: v?.deals === true,
     feats,
   };
 }
 // ¿Algún filtro oculta opciones? (el orden no cuenta)
-export const viewFiltered = (v) => !!(v.q.trim() || v.minPick || v.avail !== 'all' || v.maxTotal != null || v.underThreshold || Object.keys(v.feats).length);
+export const viewFiltered = (v) => !!(v.q.trim() || v.minPick || v.avail !== 'all' || v.maxTotal != null || v.underThreshold || v.deals || Object.keys(v.feats).length);
 
 const fold = (t) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const SOLD_OUT = /No disponible|Agotado|Currently unavailable/i;
@@ -1005,6 +1006,7 @@ export function viewOptions(list, view, cat, s = DEFAULT_SETTINGS) {
     }
     if (v.maxTotal != null && !(c.total != null && c.total <= v.maxTotal)) return false;
     if (v.underThreshold && (c.price == null || (c.overThreshold && !p.manual))) return false;
+    if (v.deals && !isDeal(p)) return false;
     for (const [f, want] of feats) {
       const x = featureValue(f, p, cat);
       if (x == null) return false;
@@ -1021,7 +1023,9 @@ export function viewOptions(list, view, cat, s = DEFAULT_SETTINGS) {
 }
 
 // ---------- comercios ----------
-// Cada producto puede tener enlaces en varias tiendas (p.stores = [{ store, url, price, currency, fetchedAt, prev, error }]).
+// Cada producto puede tener enlaces en varias tiendas (p.stores = [{ store, url, price, currency, listPrice, shipping, note, fetchedAt, prev, error }]).
+// En las tiendas de EE. UU. (entrega en Miami, ZIP 33186) se compara precio + envío + sales tax de Miami-Dade (Ajustes).
+// listPrice: precio de referencia tachado («antes», «comp. value», «reg»); si es mayor que el precio, la fila está en oferta.
 // La fila de Amazon del destino del producto no se guarda: sale del propio producto (su precio, envío y cargos).
 export const ownAmazonStore = (p) => (!p || p.manual || !(p.asin || /amazon\.com\//i.test(p.url || '')) ? null : isMiami(p) ? 'amazon-us' : 'amazon-co');
 
@@ -1038,11 +1042,22 @@ export function storeRows(p, s = DEFAULT_SETTINGS) {
   const rows = [];
   for (const key of STORE_KEYS) {
     let r;
-    if (key === own) r = { store: key, own: true, url: p.url || `https://www.amazon.com/dp/${p.asin}`, price: amazonStorePrice(p, STORES[key].region, s), currency: 'USD', fetchedAt: p.fetchedAt || null, prev: null };
-    else r = (p.stores || []).find((x) => x?.store === key);
+    if (key === own) {
+      const url = p.url || `https://www.amazon.com/dp/${p.asin}`;
+      r = STORES[key].region === 'us'
+        ? { store: key, own: true, url, price: p.price != null ? Number(p.price) : null, shipping: p.shipping != null ? Number(p.shipping) : null, currency: 'USD', fetchedAt: p.fetchedAt || null, prev: null }
+        : { store: key, own: true, url, price: amazonStorePrice(p, STORES[key].region, s), currency: 'USD', fetchedAt: p.fetchedAt || null, prev: null };
+    } else r = (p.stores || []).find((x) => x?.store === key);
     if (!r) continue;
     const price = r.price != null ? Number(r.price) : null;
-    rows.push({ ...r, price, usd: price == null ? null : r.currency === 'COP' ? +(price / (s.trm || DEFAULT_SETTINGS.trm)).toFixed(2) : price });
+    const row = { ...r, price, deal: price != null && Number(r.listPrice) > price };
+    if (STORES[key].region === 'us' && price != null) {
+      const shipping = r.shipping != null ? Number(r.shipping) : 0;
+      row.tax = +((s.miamiTax ?? DEFAULT_SETTINGS.miamiTax) * price).toFixed(2);
+      row.total = +(price + shipping + row.tax).toFixed(2);
+      row.usd = row.total;
+    } else row.usd = price == null ? null : r.currency === 'COP' ? +(price / (s.trm || DEFAULT_SETTINGS.trm)).toFixed(2) : price;
+    rows.push(row);
   }
   return rows;
 }
@@ -1058,11 +1073,19 @@ export function shownStores(p, s = DEFAULT_SETTINGS) {
 }
 
 // Guarda un precio leído en una fila (conserva el anterior para mostrar si subió o bajó).
-export function setStorePrice(row, { price, currency }, now = new Date().toISOString()) {
+export function setStorePrice(row, { price, currency, listPrice }, now = new Date().toISOString()) {
   const n = price != null ? Number(price) : null;
   if (n != null && row.price != null && Number(row.price) !== n) row.prev = { price: Number(row.price), at: row.fetchedAt || null };
   if (n != null) { row.price = n; row.currency = currency === 'COP' ? 'COP' : 'USD'; }
+  if (n != null && listPrice !== undefined) row.listPrice = Number(listPrice) > n ? Number(listPrice) : null;
   row.fetchedAt = now;
   row.error = n == null ? 'La ficha no mostró precio' : null;
   return row;
+}
+
+// ---------- ofertas ----------
+// Un producto está en oferta si su precio está por debajo de su precio de lista o si alguna tienda lo tiene en oferta.
+export function isDeal(p) {
+  if (p?.price != null && Number(p.listPrice) > Number(p.price)) return true;
+  return (p?.stores || []).some((r) => r?.price != null && Number(r.listPrice) > Number(r.price));
 }
