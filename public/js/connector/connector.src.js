@@ -1,8 +1,10 @@
-// Conector (marcador) que corre DENTRO de amazon.com con tu sesión.
+// Conector (marcador) que corre DENTRO de amazon.com o de cada tienda con tu sesión.
 // El servidor lo empaqueta en /api/connector junto con amazon-parse.js e inyecta el origen del armador, la versión y las categorías.
 //
 // Al pulsarlo queda conectado al armador (la pestaña que abrió esta, o la que este abra) y atiende sus pedidos:
 //   armador → { type: 'pcb:fetch', id, asin }      conector → { type: 'pcb:data', id, asin, product } | { type: 'pcb:error', id, asin, error }
+//   armador → { type: 'pcb:orders', id, items: [{ asin, query }] }  conector → { type: 'pcb:orders-progress', id, done, total }
+//             … { type: 'pcb:orders-data', id, invoices, scanned, orders } | { type: 'pcb:orders-error', id, error }
 // Cada pedido descarga la ficha (/dp/ASIN?th=1&psc=1) y las ofertas en paralelo, con tus cookies, y las lee con
 // las mismas funciones compartidas (readProduct/readOffers). Si la página abierta es un producto, además ofrece agregarlo.
 (async () => {
@@ -12,8 +14,10 @@
   const CONCURRENCY = 2;
   const q = (s) => document.querySelector(s);
 
-  if (!/(^|\.)amazon\.com$/i.test(location.hostname)) {
-    alert('Armador PC: abre amazon.com (con tu sesión iniciada) y pulsa de nuevo el marcador.');
+  // En Newegg, Best Buy, Micro Center o Mercado Libre el conector solo lee precios (ver «modo tienda» abajo).
+  const STORE = storeOfHost(location.hostname);
+  if (!STORE && !/(^|\.)amazon\.com$/i.test(location.hostname)) {
+    alert('Armador PC: abre amazon.com (con tu sesión iniciada) o la ficha de una tienda (Newegg, Best Buy, Walmart, Target, B&H, Micro Center, Mercado Libre) y pulsa de nuevo el marcador.');
     return;
   }
   window.__pcbConnector?.dispose(); // pulsarlo otra vez reinicia el conector
@@ -23,19 +27,19 @@
   host.style.cssText = 'position:fixed;z-index:2147483647;top:16px;right:16px;';
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
-    .b{width:350px;font:14px/1.4 system-ui,Segoe UI,sans-serif;background:#1c1b1a;color:#efece6;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.45);padding:12px 16px 14px;border:1px solid #33312e}
+    .b{width:350px;font:14px/1.45 Inter,system-ui,Segoe UI,sans-serif;background:#0F1216;color:#E8EBF0;border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.45);padding:12px 16px 14px;border:1px solid #2C323C}
     .b.min{width:auto;padding:8px 12px}.b.min #body,.b.min #product{display:none}
-    .h{display:flex;justify-content:space-between;align-items:center;gap:8px}.h b{font-size:15px}.h b::before{content:"";display:inline-block;width:10px;height:14px;border-radius:3px;background:#ff8a3d;margin-right:8px;vertical-align:-1px}
-    .x{background:none;border:0;color:#a29d93;font-size:16px;cursor:pointer;padding:2px 4px}
+    .h{display:flex;justify-content:space-between;align-items:center;gap:8px}.h b{font-size:15px}.h b::before{content:"";display:inline-block;width:10px;height:14px;border-radius:3px;background:#6C93FF;margin-right:8px;vertical-align:-1px}
+    .x{background:none;border:0;color:#9AA3B0;font-size:16px;cursor:pointer;padding:2px 4px}
     .t{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-    .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:8px 0;font-size:13px}.kv span:nth-child(odd){color:#a29d93}.kv span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums}
-    .ok{color:#4cc27f}.warn{color:#e5b04e}.err{color:#f06b62}
+    .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:8px 0;font-size:13px}.kv span:nth-child(odd){color:#9AA3B0}.kv span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums}
+    .ok{color:#8FDCAE}.warn{color:#F6C56B}.err{color:#FF9E96}
     .cats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
-    button.c,button.p{padding:7px 8px;border-radius:8px;border:1px solid #33312e;background:#252422;color:#efece6;cursor:pointer;font:inherit;font-size:12.5px;text-align:left}
-    button.c:hover{border-color:#ff8a3d}button.c.g{border-color:#ff8a3d;background:#3a2616}
-    button.p{background:#ff8a3d;border-color:#ff8a3d;color:#fff;font-weight:600;text-align:center;width:100%;margin-top:8px}
-    .m{font-size:13px;color:#a29d93;margin-top:6px}.s{font-size:13px;margin-top:6px}
-    #product{border-top:1px solid #33312e;margin-top:10px;padding-top:10px}#product:empty{display:none}
+    button.c,button.p{padding:7px 8px;border-radius:8px;border:1px solid #39404B;background:#1A1E25;color:#E8EBF0;min-height:36px;cursor:pointer;font:inherit;font-size:12.5px;text-align:left}
+    button.c:hover{border-color:#6C93FF}button.c.g{border-color:#6C93FF;background:#1B2A55}
+    button.p{background:#2453D6;border-color:#2453D6;color:#fff;font-weight:600;text-align:center;width:100%;margin-top:8px}
+    .m{font-size:13px;color:#9AA3B0;margin-top:6px}.s{font-size:13px;margin-top:6px}
+    #product{border-top:1px solid #2C323C;margin-top:10px;padding-top:10px}#product:empty{display:none}
   </style><div class="b"><div class="h"><b>Armador PC</b><span><button class="x" id="min" title="Minimizar">–</button><button class="x" id="close" title="Cerrar conector">✕</button></span></div>
   <div id="body"></div><div id="product"></div></div>`;
   document.body.append(host);
@@ -44,6 +48,70 @@
   const panel = root.querySelector('#product');
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   root.querySelector('#min').onclick = () => box.classList.toggle('min');
+
+  // ---------- modo tienda: lee el precio de los enlaces de esta tienda con tu navegador ----------
+  //   armador → { type: 'pcb:price', id, url }   conector → { type: 'pcb:price-data', id, url, data } | { type: 'pcb:price-error', id, url, error }
+  if (STORE) {
+    const info = STORES[STORE];
+    const stats = { done: 0, failed: 0, active: 0, lastError: '' };
+    const pending = [];
+    let appWin = window.opener;
+    let linked = false;
+    const post = (win, msg) => { try { win?.postMessage(msg, APP); } catch { /* ventana cerrada */ } };
+    const hello = (win) => post(win, { type: 'pcb:hello', version: VERSION, store: STORE });
+    const readPrice = async (url) => {
+      const u = new URL(url, location.href);
+      if (u.origin !== location.origin) throw new Error(`El enlace es de ${u.host}: ábrelo y pulsa ahí el marcador.`);
+      const r = await fetch(u.href, { credentials: 'include' });
+      const html = await r.text();
+      if (r.status === 404) throw new Error('La ficha ya no existe en la tienda.');
+      if (storeBlocked(html)) throw new Error(`${info.name} pidió una verificación: resuélvela en esta pestaña y reintenta.`);
+      const d = readStorePrice(html, STORE);
+      if (d.price == null) throw new Error(`No encontré el precio en la ficha (HTTP ${r.status}).`);
+      return { ...d, url: u.href, fetchedAt: new Date().toISOString() };
+    };
+    const status = () => {
+      const queued = pending.length + stats.active;
+      body.innerHTML = `
+        <div class="s ${linked ? 'ok' : 'warn'}">${linked ? `● ${esc(info.name)} conectado al armador · deja esta pestaña abierta` : '● Sin armador conectado'}</div>
+        ${linked ? '' : '<div class="m">Vuelve al armador y pulsa «Actualizar armado» o el botón de la tienda.</div>'}
+        <div class="m">Precios leídos: ${stats.done}${queued ? ` · en curso: ${queued}` : ''}${stats.failed ? ` · <span class="err">errores: ${stats.failed}</span>` : ''}</div>
+        ${stats.lastError ? `<div class="m err">${esc(stats.lastError)}</div>` : ''}`;
+    };
+    const pump = () => {
+      while (stats.active < 2 && pending.length) {
+        const job = pending.shift();
+        stats.active++;
+        readPrice(job.url).then(
+          (data) => { stats.done++; post(job.source, { type: 'pcb:price-data', id: job.id, url: job.url, data }); },
+          (e) => { stats.failed++; stats.lastError = e.message; post(job.source, { type: 'pcb:price-error', id: job.id, url: job.url, error: e.message }); },
+        ).finally(() => { stats.active--; status(); setTimeout(pump, 400); });
+      }
+      status();
+    };
+    const onMessage = (e) => {
+      if (e.origin !== APP) return;
+      const m = e.data || {};
+      appWin = e.source;
+      if (!linked) { linked = true; status(); }
+      if (m.type === 'pcb:ping') return hello(e.source);
+      if (m.type === 'pcb:price' && typeof m.url === 'string') { pending.push({ id: m.id, url: m.url, source: e.source }); pump(); }
+    };
+    addEventListener('message', onMessage);
+    hello(window.opener);
+    const heartbeat = setInterval(() => { if (appWin && !appWin.closed) hello(appWin); else if (linked) { linked = false; status(); } }, 4000);
+    window.__pcbConnector = {
+      dispose() { removeEventListener('message', onMessage); clearInterval(heartbeat); host.remove(); },
+      request: readPrice, // diagnóstico desde la consola: await __pcbConnector.request(location.href)
+      stats,
+    };
+    root.querySelector('#close').onclick = () => window.__pcbConnector.dispose();
+    status();
+    // En una ficha, muestra el precio que se leería (sirve para comprobar el lector).
+    const here = readStorePrice(document.documentElement.outerHTML, STORE);
+    if (here.price != null) panel.innerHTML = `<div class="t">${esc(here.title)}</div><div class="kv"><span>Precio en ${esc(info.name)}</span><span>${here.currency === 'COP' ? 'COP ' + here.price.toLocaleString('es-CO') : 'US$' + here.price.toFixed(2)}</span></div><div class="m">Para guardarlo: en el armador, Producto → Tiendas → «+ Agregar tienda» y pega este enlace.</div>`;
+    return;
+  }
 
   // ---------- lectura con tu sesión ----------
   const reader = (doc, live) => ({
@@ -57,6 +125,7 @@
       return c.textContent;
     },
     attr: (node, name) => node?.getAttribute(name) ?? null,
+    up: (node) => node?.parentElement ?? null,
   });
   const parse = (html) => {
     const d = new DOMParser().parseFromString(html, 'text/html');
@@ -66,7 +135,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const get = async (url, headers = {}) => {
     const r = await fetch(url, { credentials: 'include', headers });
-    return { status: r.status, html: await r.text() };
+    return { status: r.status, url: r.url, html: await r.text() };
   };
   const account = clean(q('#nav-link-accountList-nav-line-1')?.textContent);
   const loggedIn = !!account && !/Identif|sign in/i.test(account);
@@ -81,7 +150,7 @@
       if (/captchacharacters|validateCaptcha/i.test(dp.html)) throw new Error('Amazon pide un CAPTCHA: resuélvelo en la pestaña de Amazon y reintenta.');
       if (dp.status === 404) throw new Error('El producto ya no existe en amazon.com.');
       if (/id="productTitle"/.test(dp.html)) d = readProduct(reader(parse(dp.html), false));
-      if (d?.locationOk) break;
+      if (d?.region) break;
     }
     if (!d) throw new Error(`Amazon no devolvió la ficha (HTTP ${dp.status}).`);
     const offers = aod.html ? readOffers(reader(parse(aod.html), false)) : [];
@@ -94,6 +163,53 @@
       }
     }
     return { asin, url: `https://www.amazon.com/dp/${asin}`, ...d, offers, priceSource, source: 'sesion', loggedIn, fetchedAt: new Date().toISOString() };
+  }
+
+  // ---------- tus pedidos: precio pagado ----------
+  // Busca cada producto en tus pedidos (todos los años): primero por ASIN y, si su factura no aparece (otra
+  // variante, p. ej. otro color), por nombre. Lee las facturas de los pedidos encontrados y las devuelve todas:
+  // el armador elige la que corresponde a cada producto (por ASIN o por nombre).
+  const orders = { active: false, done: 0, total: 0 };
+  async function readOrders(items, onProgress) {
+    const invoices = new Map(); // número de pedido → factura
+    const searchIds = async (q) => {
+      const page = await get(orderSearchUrl(q));
+      const ids = readOrderIds(page.html);
+      if (!ids.length && needsSignIn(page.url, page.html)) throw new Error('Amazon pide iniciar sesión de nuevo para ver tus pedidos: abre «Tus pedidos» en esta pestaña, entra y reintenta.');
+      return ids;
+    };
+    const readIds = async (ids) => {
+      const todo = [...new Set(ids)].filter((id) => !invoices.has(id));
+      orders.total += todo.length;
+      let next = 0;
+      const worker = async () => {
+        while (next < todo.length) {
+          const id = todo[next++];
+          const inv = readInvoice(reader(parse((await get(invoiceUrl(id))).html), false));
+          invoices.set(id, { ...inv, orderId: inv.orderId || id });
+          orders.done++;
+          onProgress(orders.done, orders.total);
+          status();
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    };
+    const has = (asin) => [...invoices.values()].some((inv) => inv.items.some((it) => it.asin === asin));
+    Object.assign(orders, { active: true, done: 0, total: 0 });
+    status();
+    try {
+      const byAsin = [];
+      for (const it of items) byAsin.push(...await searchIds(it.asin));
+      await readIds(byAsin);
+      const byName = [];
+      for (const it of items) if (!has(it.asin) && it.query) byName.push(...await searchIds(it.query));
+      await readIds(byName);
+    } finally {
+      orders.active = false;
+      status();
+    }
+    const list = [...invoices.values()].filter((inv) => inv.items.length && inv.total != null);
+    return { invoices: list, scanned: orders.done, orders: list.length };
   }
 
   // ---------- servicio para el armador ----------
@@ -122,9 +238,10 @@
     const queued = pending.length + stats.active;
     body.innerHTML = `
       <div class="s ${linked ? 'ok' : 'warn'}">${linked ? '● Conectado al armador · deja esta pestaña abierta' : '● Sin armador conectado'}</div>
-      ${linked ? '' : `<div class="m">Abre el armador y pulsa «Conectar Amazon», o usa este botón:</div><button class="p" id="link">Conectar con el armador ↗</button>`}
+      ${linked ? '' : `<div class="m">Abre el armador y pulsa el estado de Amazon, o usa este botón:</div><button class="p" id="link">Conectar con el armador</button>`}
       <div class="m">${loggedIn ? `Sesión: ${esc(account)}` : '<span class="warn">No detecté sesión iniciada</span>'}${deliverTo ? ` · entrega: ${esc(deliverTo)}` : ''}</div>
       <div class="m">Actualizados: ${stats.done}${queued ? ` · en curso: ${queued}` : ''}${stats.failed ? ` · <span class="err">errores: ${stats.failed}</span>` : ''}</div>
+      ${orders.active ? `<div class="m">Leyendo tus pedidos: ${orders.done}/${orders.total} facturas…</div>` : ''}
       ${stats.lastError ? `<div class="m err">${esc(stats.lastError)}</div>` : ''}`;
     root.querySelector('#link')?.addEventListener('click', () => { appWin = window.open(`${APP}/`, 'pcb-armador'); });
   }
@@ -140,6 +257,16 @@
       jobs.get(m.asin).push({ id: m.id, source: e.source });
       pump();
     }
+    if (m.type === 'pcb:orders' && Array.isArray(m.items)) {
+      const src = e.source;
+      if (orders.active) return post(src, { type: 'pcb:orders-error', id: m.id, error: 'Ya estoy leyendo tus pedidos; espera a que termine.' });
+      const items = m.items.filter((it) => /^[A-Z0-9]{10}$/.test(it?.asin || '')).slice(0, 60)
+        .map((it) => ({ asin: it.asin, query: String(it.query || '').slice(0, 80) }));
+      readOrders(items, (done, total) => post(src, { type: 'pcb:orders-progress', id: m.id, done, total })).then(
+        (r) => post(src, { type: 'pcb:orders-data', id: m.id, ...r }),
+        (err) => post(src, { type: 'pcb:orders-error', id: m.id, error: err.message }),
+      );
+    }
   };
   addEventListener('message', onMessage);
   hello(window.opener);
@@ -147,6 +274,7 @@
   window.__pcbConnector = {
     dispose() { removeEventListener('message', onMessage); clearInterval(heartbeat); host.remove(); },
     request: readAsin, // diagnóstico desde la consola: await __pcbConnector.request('B0...')
+    orders: (items) => readOrders(items, () => {}), // await __pcbConnector.orders([{ asin: 'B0...', query: 'Marca Modelo' }])
     stats,
   };
   root.querySelector('#close').onclick = () => window.__pcbConnector.dispose();

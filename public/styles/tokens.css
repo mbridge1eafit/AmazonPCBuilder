@@ -1,0 +1,60 @@
+/* Tokens del diseño «Armador PC — Rediseño». Claro por defecto; oscuro según el sistema o Ajustes → Apariencia. */
+:root {
+  color-scheme: light;
+  --bg: #F3F4F6; --surface: #FFFFFF; --surface-2: #F7F8FA; --surface-3: #FAFBFC;
+  --ink: #14171C; --ink-2: #3A4553; --muted: #555E6B; --faint: #6B7380; --off: #9AA1AC;
+  --line: #DDE1E7; --line-2: #EDEFF2; --line-strong: #C6CDD7; --line-dash: #AEB6C2;
+  --chip: #EDEFF2; --chip-ink: #3A4553;
+  --acc: #2453D6; --acc-hover: #173A9E; --on-acc: #FFFFFF; --link: #2453D6;
+  --acc-bg: #E6ECFC; --acc-ink: #1E46B8;
+  --ok-bg: #E4F2E9; --ok: #1A6339; --ok-strong: #1E7A46; --dot-ok: #1E8A4C;
+  --warn-bg: #FFF0D4; --warn: #7F4500; --warn-strong: #B26B00; --warn-line: #E9C77F;
+  --err-bg: #FBE7E5; --err: #A1221A; --err-line: #E3A49E;
+  --banner-bg: #FFF6E5; --banner-line: #F1D49A; --banner-ink: #5C3A00;
+  --star: #B26B00; --fixed: #8A5A00; --star-off: #8A93A0;
+  --sel: #F5F8FF; --pill: #14171C; --on-pill: #FFFFFF;
+  --best: #DCE6FD; --mid: #F1F4FA; --worst: #FFECD1; --worst-ink: #8A4B00;
+  --s1: #14171C; --s2: #2453D6; --s3: #C2410C; --s4: #6B7280; --s5: #7C3AED; --s6: #0F766E;
+  --shadow: 0 12px 32px rgba(20, 23, 28, .18);
+  --radius: 12px;
+  --font: Inter, system-ui, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0F1216; --surface: #1A1E25; --surface-2: #13161B; --surface-3: #161A20;
+    --ink: #E8EBF0; --ink-2: #C9CFD8; --muted: #9AA3B0; --faint: #8A93A0; --off: #5F6773;
+    --line: #2C323C; --line-2: #222731; --line-strong: #39404B; --line-dash: #4A515C;
+    --chip: #262B34; --chip-ink: #C9CFD8;
+    --acc: #3D6BE8; --acc-hover: #6C93FF; --on-acc: #FFFFFF; --link: #8FB0FF;
+    --acc-bg: #1B2A55; --acc-ink: #A9C1FF;
+    --ok-bg: #163A26; --ok: #8FDCAE; --ok-strong: #3CCB7F; --dot-ok: #3CCB7F;
+    --warn-bg: #3D2C0C; --warn: #F6C56B; --warn-strong: #F6C56B; --warn-line: #6B5121;
+    --err-bg: #45191A; --err: #FF9E96; --err-line: #7A3A36;
+    --banner-bg: #2E230F; --banner-line: #6B5121; --banner-ink: #F6D79B;
+    --star: #F6C56B; --fixed: #F6C56B; --star-off: #6B7380;
+    --sel: #17213A; --pill: #E8EBF0; --on-pill: #0F1216;
+    --best: #1B2E5C; --mid: #1E232C; --worst: #3D2A12; --worst-ink: #F6C56B;
+    --s1: #E8EBF0; --s2: #6C93FF; --s3: #FF8A50; --s4: #9AA3B0; --s5: #B794F6; --s6: #4FD1C5;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0F1216; --surface: #1A1E25; --surface-2: #13161B; --surface-3: #161A20;
+  --ink: #E8EBF0; --ink-2: #C9CFD8; --muted: #9AA3B0; --faint: #8A93A0; --off: #5F6773;
+  --line: #2C323C; --line-2: #222731; --line-strong: #39404B; --line-dash: #4A515C;
+  --chip: #262B34; --chip-ink: #C9CFD8;
+  --acc: #3D6BE8; --acc-hover: #6C93FF; --on-acc: #FFFFFF; --link: #8FB0FF;
+  --acc-bg: #1B2A55; --acc-ink: #A9C1FF;
+  --ok-bg: #163A26; --ok: #8FDCAE; --ok-strong: #3CCB7F; --dot-ok: #3CCB7F;
+  --warn-bg: #3D2C0C; --warn: #F6C56B; --warn-strong: #F6C56B; --warn-line: #6B5121;
+  --err-bg: #45191A; --err: #FF9E96; --err-line: #7A3A36;
+  --banner-bg: #2E230F; --banner-line: #6B5121; --banner-ink: #F6D79B;
+  --star: #F6C56B; --fixed: #F6C56B; --star-off: #6B7380;
+  --sel: #17213A; --pill: #E8EBF0; --on-pill: #0F1216;
+  --best: #1B2E5C; --mid: #1E232C; --worst: #3D2A12; --worst-ink: #F6C56B;
+  --s1: #E8EBF0; --s2: #6C93FF; --s3: #FF8A50; --s4: #9AA3B0; --s5: #B794F6; --s6: #4FD1C5;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .5);
+}
