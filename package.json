@@ -1,11 +1,12 @@
 {
-  "name": "amazon-pc-builder",
-  "version": "1.0.0",
-  "description": "Armador de PC con precios y envío a Colombia leídos con tu sesión de amazon.com",
+  "name": "armador-pc",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Armador PC: planea y compra un PC por piezas con el costo real en Colombia o Miami, varias tiendas, historial y compatibilidad.",
   "type": "module",
-  "main": "server.js",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node server/index.js",
     "test": "node --test"
   },
   "engines": {

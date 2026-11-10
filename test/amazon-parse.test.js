@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as cheerio from 'cheerio';
-import { amount, parseBox, parseOfferText, parseSellerText, offerSeller, offerShipsFrom, undouble, guessCategory, bestNewOffer, deliversToColombia, readProduct, readInvoice, readOrderIds, orderDate, needsSignIn } from '../public/amazon-parse.js';
+import { amount, parseBox, parseOfferText, parseSellerText, offerSeller, offerShipsFrom, undouble, guessCategory, bestNewOffer, deliversToColombia, readProduct, readInvoice, readOrderIds, orderDate, needsSignIn } from '../public/js/connector/amazon-parse.js';
 
 test('importes en USD y COP', () => {
   assert.deepEqual(amount('US$1,234.56'), { value: 1234.56, currency: 'USD' });
@@ -125,7 +125,7 @@ test('inicio de sesión: el enlace /ap/signin del menú no cuenta, la página de
 });
 
 test('regionOf distingue Colombia y EE. UU.', async () => {
-  const { regionOf } = await import('../public/amazon-parse.js');
+  const { regionOf } = await import('../public/js/connector/amazon-parse.js');
   assert.equal(regionOf('Medellin 050022'), 'co');
   assert.equal(regionOf('Miami 33166'), 'us');
   assert.equal(regionOf('', '$179.00 No Import Charges & $17.38 Shipping to Colombia'), 'co');

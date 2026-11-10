@@ -1,6 +1,11 @@
 node_modules/
 .claude/skills/run-amazon-pc-builder/shots/
 
+# Datos locales: copias por hora y temporales del guardado atómico
+data/backups/
+data/*.bak
+data/store.json.tmp
+
 # Documentación e investigación (solo local)
 /*.md
 !/README.md
