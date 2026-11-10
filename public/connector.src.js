@@ -12,7 +12,15 @@
   const VERSION = __VERSION__;
   const CATS = __CATS__;
   const CONCURRENCY = 2;
+  const FETCH_MS = 30000; // una descarga colgada no puede bloquear la cola
+  const INSTANCE = Math.random().toString(36).slice(2); // el armador reenvía lo pendiente si el conector se reinicia
   const q = (s) => document.querySelector(s);
+  const fetchT = async (url, opts = {}) => {
+    try { return await fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_MS) }); } catch (e) {
+      if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error(`No respondió en ${FETCH_MS / 1000} s. Se puede reintentar.`);
+      throw e;
+    }
+  };
 
   // En Newegg, Best Buy, Micro Center o Mercado Libre el conector solo lee precios (ver «modo tienda» abajo).
   const STORE = storeOfHost(location.hostname);
@@ -62,7 +70,7 @@
     const readPrice = async (url) => {
       const u = new URL(url, location.href);
       if (u.origin !== location.origin) throw new Error(`El enlace es de ${u.host}: ábrelo y pulsa ahí el marcador.`);
-      const r = await fetch(u.href, { credentials: 'include' });
+      const r = await fetchT(u.href, { credentials: 'include' });
       const html = await r.text();
       if (r.status === 404) throw new Error('La ficha ya no existe en la tienda.');
       if (storeBlocked(html)) throw new Error(`${info.name} pidió una verificación: resuélvela en esta pestaña y reintenta.`);
@@ -134,7 +142,7 @@
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const get = async (url, headers = {}) => {
-    const r = await fetch(url, { credentials: 'include', headers });
+    const r = await fetchT(url, { credentials: 'include', headers });
     return { status: r.status, url: r.url, html: await r.text() };
   };
   const account = clean(q('#nav-link-accountList-nav-line-1')?.textContent);
@@ -220,7 +228,7 @@
   let linked = false;
 
   const post = (win, msg) => { try { win?.postMessage(msg, APP); } catch { /* ventana cerrada o de otro origen */ } };
-  const hello = (win) => post(win, { type: 'pcb:hello', version: VERSION, loggedIn, deliverTo });
+  const hello = (win) => post(win, { type: 'pcb:hello', version: VERSION, instance: INSTANCE, loggedIn, deliverTo });
 
   function pump() {
     while (stats.active < CONCURRENCY && pending.length) {

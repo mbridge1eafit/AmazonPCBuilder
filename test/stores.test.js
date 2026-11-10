@@ -55,6 +55,16 @@ test('readStorePrice: microdatos y patrones propios cuando no hay JSON-LD', () =
   assert.equal(readStorePrice('<html><title>Nada</title></html>', 'newegg').price, null);
 });
 
+test('readStorePrice: Newegg toma el FinalPrice del ítem de la ficha, no el de relacionados', () => {
+  // Recorte real (990 PRO 2TB): el primer FinalPrice del estado embebido es de otro artículo.
+  const html = '<link rel="canonical" href="https://www.newegg.com/samsung-2tb-990-pro-nvme-2-0/p/N82E16820147861"/>'
+    + '<script>{"ItemNumber":"20-147-861"},{"Item":"20-985-132","UnitCost":129.99,"FinalPrice":102.99,"Instock":true}'
+    + ',{"ItemPriceRange":{"PriceRangeMin":386,"PriceRangeMax":805.36},"Item":"20-147-861","Qty":517,"UnitCost":639.99,"InstantRebateAmount":250,"ExchangeRate":0,"FinalPrice":389.99,"Instock":true}</script>';
+  assert.equal(readStorePrice(html, 'newegg').price, 389.99);
+  const market = '<meta property="og:url" content="https://www.newegg.com/p/9SIA12345678"><script>{"Item":"1-2-3","FinalPrice":5},{"Item":"9SIA12345678","FinalPrice":77.5}</script>';
+  assert.equal(readStorePrice(market, 'newegg').price, 77.5);
+});
+
 test('readStorePrice: JSON-LD inválido no rompe', () => {
   const html = '<script type="application/ld+json">{oops</script><meta itemprop="price" content="10.00">';
   assert.equal(readStorePrice(html, 'newegg').price, 10);

@@ -653,12 +653,15 @@ details.acc.bl .acc-meta { font-weight: 500; }
 .paid-amount { display: flex; gap: 6px; min-width: 170px; }
 .paid-amount input { width: 110px; }
 
-/* Enlace a Amazon en las tarjetas: solo el logo, sin estirarse como los demás botones. */
-.btn.amz { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; text-decoration: none; }
-.amz-logo { width: 18px; height: 18px; display: block; }
+/* Enlace a Amazon: botón con los colores de Amazon para que se distinga de las demás acciones. */
+.btn.amz { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; font-weight: 600; background: #ffd814; border-color: #fcd200; color: #0f1111; }
+.btn.amz:hover { background: #f7ca00; border-color: #f2c200; }
+.btn.amz .slogo { width: 18px; height: 18px; border-radius: 4px; box-shadow: none; }
+.btn.amz.compact { padding-inline: 7px; }
+.m-hero .btn.amz { margin-bottom: 8px; }
 
 /* ---------- comercios: precios por tienda ---------- */
-.slogo { width: 24px; height: 24px; display: block; flex: none; border-radius: 6px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); }
+.slogo { width: 24px; height: 24px; display: block; flex: none; object-fit: contain; background: #fff; border-radius: 6px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); }
 .stores { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 6px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .srow { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: inherit; text-decoration: none; transition: border-color .15s, background .15s; }
 .srow:hover { border-color: color-mix(in srgb, var(--text) 30%, var(--line)); }
@@ -708,3 +711,32 @@ details.acc.bl .acc-meta { font-weight: 500; }
 .pr-main small { display: block; font-size: 12px; }
 .pr-note { font-size: 12.5px; padding: 0 12px; }
 @media (max-width: 640px) { .pr-row { grid-template-columns: 28px minmax(0, 1fr); } .pr-row > .btn { grid-column: 1 / -1; } }
+
+/* Comparador con escala de colores (peor → mejor por fila) */
+.cmp-mark { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; align-self: flex-start; }
+.cmp-mark input { margin: 0; accent-color: var(--info); }
+.opt:has(.cmp-mark input:checked) { box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 55%, transparent); }
+.cmp-hint { font-size: 12px; }
+.cmp-hint:empty { display: none; }
+.heat-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12.5px; }
+.heat-bar .btn { margin-left: auto; }
+.heat-legend { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.heat-legend i { width: 22px; height: 12px; }
+.heat.h0, .heat-legend .h0 { background: var(--err-soft); }
+.heat.h1, .heat-legend .h1 { background: color-mix(in srgb, var(--err-soft) 50%, var(--warn-soft)); }
+.heat.h2, .heat-legend .h2 { background: var(--warn-soft); }
+.heat.h3, .heat-legend .h3 { background: color-mix(in srgb, var(--warn-soft) 40%, var(--ok-soft)); }
+.heat.h4, .heat-legend .h4 { background: var(--ok-soft); }
+.heat.h0 { color: var(--err); }
+.heat.h4 { color: var(--ok); font-weight: 700; }
+table.heatmap td { position: relative; font-variant-numeric: tabular-nums; }
+table.heatmap tr.wins td { background: var(--surface-2); }
+table.heatmap tr.wins td.top { background: var(--ok-soft); color: var(--ok); }
+.cmp-drop { position: absolute; top: 4px; right: 4px; padding: 2px 7px; }
+
+/* Guías de referencia por categoría (botón «i») */
+.info-btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 6px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font: italic 700 11px/1 Georgia, serif; cursor: pointer; vertical-align: middle; }
+.info-btn:hover, .info-btn:focus-visible { color: var(--text, inherit); border-color: currentColor; }
+.guide-wrap { overflow-x: auto; }
+table.guide th, table.guide td { white-space: nowrap; }
+.guide-notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }

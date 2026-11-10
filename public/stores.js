@@ -80,6 +80,17 @@ function stOffer(product, fallbackCurrency) {
 const stMeta = (html, re) => { const m = String(html).match(re); return m ? stDecode(m[1] ?? m[2]) : null; };
 const stAttr = (name, attr = 'content') => new RegExp(`<[^>]*(?:itemprop|property|name)=["']${name}["'][^>]*${attr}=["']([^"']+)["']|<[^>]*${attr}=["']([^"']+)["'][^>]*(?:itemprop|property|name)=["']${name}["']`, 'i');
 
+// Newegg sin JSON-LD de producto: el estado embebido trae "FinalPrice" de muchos artículos
+// (relacionados, combos), así que se toma el del objeto cuyo "Item" es el de la ficha
+// (N82E16820147861 en la URL canónica → "20-147-861"; 9SIA… se usa tal cual).
+function stNeweggPrice(html) {
+  const url = stMeta(html, /<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)/i) || stMeta(html, stAttr('og:url')) || '';
+  const m = url.match(/\/p\/(?:N82E168(\d{2})(\d{3})(\d{3}[A-Z]?)|(9SI[A-Z0-9]+))/i);
+  if (!m) return stMeta(html, /"FinalPrice"\s*:\s*([\d.]+)/);
+  const item = (m[4] || `${m[1]}-${m[2]}-${m[3]}`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return stMeta(html, new RegExp(`"Item"\\s*:\\s*"${item}"[^{}]{0,600}?"FinalPrice"\\s*:\\s*([\\d.]+)`, 'i'));
+}
+
 // Páginas de verificación (Cloudflare, Akamai, captcha) en lugar de la ficha.
 export function storeBlocked(html) {
   const t = String(html).slice(0, 20000);
@@ -98,7 +109,7 @@ export function readStorePrice(html, key) {
     const currency = /^COP$/i.test(stMeta(html, stAttr('(?:product:price:currency|og:price:currency|priceCurrency)')) || '') ? 'COP' : cur;
     const raw = stMeta(html, stAttr('(?:price|product:price:amount|og:price:amount)'))
       ?? (key === 'bestbuy' ? stMeta(html, /"currentPrice"\s*:\s*([\d.]+)/) : null)
-      ?? (key === 'newegg' ? stMeta(html, /"FinalPrice"\s*:\s*([\d.]+)/) : null)
+      ?? (key === 'newegg' ? stNeweggPrice(html) : null)
       ?? (key === 'microcenter' ? stMeta(html, /data-price=["']([\d.,]+)["']/i) : null)
       ?? (key === 'mercadolibre' ? stMeta(html, /"price"\s*:\s*(\d{4,})/) : null);
     const price = storePriceNumber(raw, currency);

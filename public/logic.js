@@ -933,11 +933,12 @@ export const FEATURES = {
   ],
   accessories: [
     { key: 'kind', label: 'Tipo', type: 'cat', always: true, get: accessoryKind },
-    { key: 'cert', label: 'Certificación', type: 'cat', get: cableCert },
-    { key: 'version', label: 'Versión', type: 'cat', get: cableVersion },
+    // rank: orden de calidad de un valor de texto (para la escala de colores del comparador; mayor = mejor).
+    { key: 'cert', label: 'Certificación', type: 'cat', get: cableCert, rank: (v) => CERT_GBPS[v] ?? (v === 'VESA (sin clase)' ? 10 : 0) },
+    { key: 'version', label: 'Versión', type: 'cat', get: cableVersion, rank: (v) => Number(String(v).match(/\d+(?:\.\d+)?/)?.[0]) || null },
     { key: 'gbps', label: 'Ancho de banda', unit: 'Gbps', better: 'high', get: (p) => (isVideoCable(p) ? cableGbps(p) : null) },
     { key: 'length', label: 'Longitud', unit: 'm', better: 'high', exact: true, get: (p) => (/cable/i.test(accessoryKind(p)) ? cableLengthM(p) : null) },
-    { key: 'braided', label: 'Forro', type: 'cat', get: (p) => (/cable/i.test(accessoryKind(p)) ? (/braided|trenzad|nylon/i.test(p.title || '') ? 'Trenzado' : 'Normal') : null) },
+    { key: 'braided', label: 'Forro', type: 'cat', get: (p) => (/cable/i.test(accessoryKind(p)) ? (/braided|trenzad|nylon/i.test(p.title || '') ? 'Trenzado' : 'Normal') : null), rank: (v) => (v === 'Trenzado' ? 1 : 0) },
     { key: 'joules', label: 'Protección', unit: 'J', better: 'high', tag: 'joules' },
     { key: 'outlets', label: 'Tomas', unit: 'tomas', better: 'high', tag: 'outlets' },
     { key: 'vpr', label: 'VPR', unit: 'V', better: 'low', tag: 'vpr' },

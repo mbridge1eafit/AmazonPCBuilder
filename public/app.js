@@ -2,7 +2,7 @@ import { CATEGORIES, CAT, STATUS, PICKS, PICK_FIXED, pickLevel, pickOf, isFixed,
 import { STORES, STORE_KEYS, storeOfHost, storeOfUrl, urlFitsStore } from './stores.js';
 import { regionOf } from './amazon-parse.js';
 import { extractAsin } from './amazon-parse.js';
-import { ICONS, RIG, STORE_LOGOS } from './icons.js';
+import { ICONS, RIG, STORE_LOGOS, AMAZON_LOGO } from './icons.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -60,8 +60,10 @@ function toast(msg, err = false, ms = 3800) {
 // Toda la información de Amazon se lee con tu sesión: el conector (marcador) corre en una pestaña de amazon.com,
 // el armador le pide productos por ASIN y el conector responde con la ficha completa.
 const AMAZON_ORIGINS = ['https://www.amazon.com', 'https://amazon.com', 'https://smile.amazon.com'];
-const STALL_MS = 90000; // sin noticias del conector en este tiempo, los pedidos en curso se dan por fallidos
-const session = { win: null, origin: null, connected: false, version: null, loggedIn: null, deliverTo: '', lastMsg: 0 };
+// Si en este tiempo no llega ninguna ficha (los «hello» de cada 4 s no cuentan), lo enviado se reenvía una vez
+// (el conector pudo reiniciarse y olvidarlo); si sigue sin llegar nada, se da por fallido.
+const STALL_MS = 90000;
+const session = { win: null, origin: null, connected: false, version: null, instance: null, loggedIn: null, deliverTo: '', lastMsg: 0, lastProgress: 0, stallRetried: false };
 const jobs = new Map(); // id → { asin, resolve, reject, sent }
 const busyAsins = new Set();
 let connectorVersion = null;
@@ -86,6 +88,7 @@ function openAmazonTab() {
 function requireSession() { if (!sessionAlive()) openAmazonTab(); }
 
 function dispatch(job) {
+  if (![...jobs.values()].some((j) => j.sent)) session.lastProgress = Date.now();
   job.sent = true;
   session.win.postMessage({ type: 'pcb:fetch', id: job.id, asin: job.asin }, session.origin);
 }
@@ -103,6 +106,7 @@ function finishJob(id, product, error) {
   const job = jobs.get(id);
   if (!job) return;
   jobs.delete(id);
+  Object.assign(session, { lastProgress: Date.now(), stallRetried: false });
   if (error) job.reject(new Error(error)); else job.resolve(product);
   renderSession();
 }
@@ -139,8 +143,11 @@ function finishOrders(id, data, error) {
 
 function linkSession(win, origin, info) {
   const wasAlive = sessionAlive();
-  Object.assign(session, { win, origin, connected: true, version: info.version, loggedIn: info.loggedIn, deliverTo: info.deliverTo || '', lastMsg: Date.now() });
+  const restarted = wasAlive && !!info.instance && !!session.instance && info.instance !== session.instance;
+  Object.assign(session, { win, origin, connected: true, version: info.version, instance: info.instance || null, loggedIn: info.loggedIn, deliverTo: info.deliverTo || '', lastMsg: Date.now() });
   try { win.postMessage({ type: 'pcb:welcome' }, origin); } catch { /* cerrada */ }
+  // Pulsaste otra vez el marcador: el conector nuevo no sabe lo que tenía el anterior, se le reenvía.
+  if (restarted) for (const job of jobs.values()) if (job.sent) dispatch(job);
   if (!wasAlive) {
     toast(`Amazon conectado con tu sesión${info.deliverTo ? ` (entrega: ${info.deliverTo})` : ''}.`);
     if (connectorVersion && info.version !== connectorVersion) toast('Tu marcador «➕ Armador PC» es de una versión anterior. Reinstálalo desde 🔌 Conector.', true, 10000);
@@ -222,9 +229,16 @@ setInterval(() => {
     for (const job of jobs.values()) if (job.sent) { job.sent = false; requeued++; }
     if (requeued) toast(`Se cerró la pestaña de Amazon: ${requeued} actualizaciones quedan en espera hasta reconectar.`, true, 8000);
     renderSession();
-  } else if (sessionAlive() && Date.now() - session.lastMsg > STALL_MS) {
-    for (const job of [...jobs.values()]) if (job.sent) finishJob(job.id, null, 'El conector no respondió. Recarga la pestaña de Amazon y pulsa de nuevo el marcador.');
-    session.lastMsg = Date.now();
+  } else if (sessionAlive() && [...jobs.values()].some((j) => j.sent) && Date.now() - session.lastProgress > STALL_MS) {
+    const sent = [...jobs.values()].filter((j) => j.sent);
+    if (!session.stallRetried) {
+      session.stallRetried = true;
+      session.lastProgress = Date.now();
+      sent.forEach(dispatch);
+      toast(`El conector lleva ${STALL_MS / 1000} s sin entregar fichas: reenvío ${sent.length} pendientes.`, true, 8000);
+    } else {
+      sent.forEach((job) => finishJob(job.id, null, 'El conector no respondió. Recarga la pestaña de Amazon y pulsa de nuevo el marcador.'));
+    }
   }
 }, 3000);
 
@@ -1229,9 +1243,11 @@ function paidBox(p, cat) {
 
 // Enlace a la ficha en Amazon (el de la tienda donde se leyó, o el /dp/ del ASIN).
 const amazonHref = (p) => p.url || (asinOf(p) ? `https://www.amazon.com/dp/${asinOf(p)}` : null);
-const amazonLink = (p, cls = 'btn small ghost amz') => {
+// compact: solo el logo (tarjetas de opciones, donde no cabe el texto).
+const amazonLink = (p, { compact = false, cls = 'btn small' } = {}) => {
   const href = amazonHref(p);
-  return href ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener" title="Ver en Amazon" aria-label="Ver en Amazon (abre otra pestaña)">${ICONS.amazon}</a>` : '';
+  if (!href) return '';
+  return `<a class="${cls} amz ${compact ? 'compact' : ''}" href="${esc(href)}" target="_blank" rel="noopener" title="Ver en Amazon (abre otra pestaña)" aria-label="Ver en Amazon (abre otra pestaña)">${AMAZON_LOGO}${compact ? '' : '<span>Ver en Amazon</span><span aria-hidden="true">↗</span>'}</a>`;
 };
 
 // Precios por tienda en la parte inferior de la tarjeta: solo los que tienen enlace y precio.
@@ -1275,10 +1291,10 @@ function productCard(p, cat) {
     </div>
     ${priceBox(p, cat)}
     <div class="pactions">
+      ${amazonLink(p)}
       <button class="btn small" data-action="details" data-cat="${cat}" data-id="${p.id}">✎ Detalles</button>
       ${updateButton(p, cat, 'btn small')}
       <button class="btn small ghost" data-action="deselect" data-cat="${cat}" data-id="${p.id}">Quitar del armado</button>
-      ${amazonLink(p)}
     </div>
     ${storesStrip(p)}
   </article>`;
@@ -1298,7 +1314,10 @@ function optionCard(p, cat, ref, feats = []) {
   const c = lineCost(p, S());
   const delta = !sel && ref != null && c.total != null ? c.total - ref : null;
   const specs = featLine(p, cat, feats);
+  const mark = HEAT_CATS.has(cat) && s.options.length > 1
+    ? `<label class="cmp-mark" title="Marca dos o más para compararlas solo a ellas"><input type="checkbox" data-cmp="${p.id}" data-cat="${cat}" ${(cmpMarks[cat] || []).includes(p.id) ? 'checked' : ''}> Comparar</label>` : '';
   return `<div class="opt ${sel ? 'sel' : ''} ${isFixed(p) ? 'fixed' : ''} ${isBusy(p) ? 'loading' : ''}">
+    ${mark}
     <div class="opt-top">${thumb(p, cat)}<div class="opt-title" title="${esc(p.title)}">${esc(p.title)}</div></div>
     ${specs ? `<div class="opt-specs">${specs}</div>` : ''}
     <div class="opt-price">${costTip(p, c, { fmt: usd })}${delta != null ? `<span class="delta ${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '+' : '−'}${usd(Math.abs(delta)).replace('US$', '$')}</span>` : sel ? '<span class="delta muted">elegido</span>' : ''}</div>
@@ -1309,7 +1328,7 @@ function optionCard(p, cat, ref, feats = []) {
       <button class="btn small ${sel ? '' : 'primary'}" data-action="select" data-cat="${cat}" data-id="${p.id}">${sel ? (CAT[cat].multi ? 'Quitar' : 'Elegido ✓') : CAT[cat].multi ? 'Agregar' : 'Cambiar a este'}</button>
       ${updateButton(p, cat, 'btn small ghost', true)}
       <button class="btn small ghost" data-action="details" data-cat="${cat}" data-id="${p.id}" title="Detalles" aria-label="Detalles">⋯</button>
-      ${amazonLink(p)}
+      ${amazonLink(p, { compact: true })}
     </div>
   </div>`;
 }
@@ -1348,7 +1367,35 @@ function featLine(p, cat, feats) {
     return `<span title="${esc(f.label)}"${on ? ' class="on"' : ''}>${esc(fmtFeature(f, x))}</span>`;
   }).filter(Boolean).join('<span aria-hidden="true"> · </span>');
 }
-const compareLabel = (cat, shown) => `Comparar ${compareList(cat, shown).length}`;
+// Comparador con escala de colores y opciones marcadas a mano (por ahora solo en estas categorías).
+const HEAT_CATS = new Set(['accessories']);
+const CMP_KEY = 'pcb-cmp-marks';
+const cmpMarks = (() => { try { return JSON.parse(localStorage.getItem(CMP_KEY)) || {}; } catch { return {}; } })();
+// Marcadas que siguen existiendo en la categoría, en el orden de la vista.
+const markedIds = (cat) => { const ids = new Set(cmpMarks[cat] || []); return slot(cat).options.filter((o) => ids.has(o.id)).map((o) => o.id); };
+function setMarks(cat, ids) {
+  if (ids.length) cmpMarks[cat] = ids; else delete cmpMarks[cat];
+  try { localStorage.setItem(CMP_KEY, JSON.stringify(cmpMarks)); } catch { /* sin almacenamiento: solo en esta visita */ }
+}
+// Con dos o más marcadas se comparan esas; si no, las filtradas.
+function compareSet(cat, shown) {
+  const marked = HEAT_CATS.has(cat) ? markedIds(cat) : [];
+  if (marked.length >= 2) {
+    const order = viewOptions(slot(cat).options, { sort: optView(cat).sort, dir: optView(cat).dir }, cat, S());
+    return { ps: order.filter((o) => marked.includes(o.id)), marked: true };
+  }
+  return { ps: compareList(cat, shown), marked: false };
+}
+const compareLabel = (cat, shown) => { const c = compareSet(cat, shown); return `Comparar ${c.ps.length}${c.marked ? ' marcados' : ''}`; };
+function renderMarks(cat) {
+  const cmp = $(`#cat-${cat} [data-action="compare"]`);
+  if (cmp) cmp.textContent = compareLabel(cat);
+  const n = markedIds(cat).length;
+  const clr = $(`#cat-${cat} [data-action="cmp-clear"]`);
+  if (clr) { clr.hidden = !n; clr.textContent = `Desmarcar ${n}`; }
+  const hint = $(`details.options[data-cat="${cat}"] .cmp-hint`);
+  if (hint) hint.textContent = n === 1 ? 'Marca al menos otra para compararlas' : '';
+}
 const optSummary = (cat, n) => { const total = slot(cat).options.length; return `Opciones (${n === total ? total : `${n} de ${total}`}): cambiar o agregar`; };
 const optStatus = (cat, n) => (viewFiltered(optView(cat))
   ? `Mostrando ${n} de ${slot(cat).options.length} <button type="button" class="btn small ghost" data-action="opt-clear" data-cat="${cat}">Quitar filtros</button>` : '');
@@ -1404,6 +1451,7 @@ function optTools(cat, n, feats) {
     <label class="opt-check" title="Con precio por debajo de su precio de lista en alguna tienda"><input type="checkbox" ${attrs('deals')} ${v.deals ? 'checked' : ''}> En oferta</label>
     ${featSel ? `<div class="opt-feats" role="group" aria-label="Filtrar por características" data-cat="${cat}">${featSel}</div>` : ''}
     <div class="opt-status" data-cat="${cat}" role="status">${optStatus(cat, n)}</div>
+    ${HEAT_CATS.has(cat) ? `<div class="cmp-hint muted" role="status">${markedIds(cat).length === 1 ? 'Marca al menos otra para compararlas' : ''}</div>` : ''}
   </div>`;
 }
 
@@ -1449,10 +1497,11 @@ function renderParts(b, list) {
     return `<section class="cat has-${state}" id="cat-${c.key}">
       <div class="cat-head">
         <div class="cat-icon">${ICONS[c.key]}</div>
-        <div class="cat-title"><h3>${c.name}${c.multi ? '<span class="chip">varios</span>' : ''}</h3><p title="${esc(sub)}">${esc(sub)}</p></div>
+        <div class="cat-title"><h3>${c.name}${c.multi ? '<span class="chip">varios</span>' : ''}${GUIDES[c.key] ? `<button type="button" class="info-btn" data-action="guide" data-cat="${c.key}" title="${esc(GUIDES[c.key].title)}" aria-label="${esc(GUIDES[c.key].title)}">i</button>` : ''}</h3><p title="${esc(sub)}">${esc(sub)}</p></div>
         <div class="cat-flags">
           ${s.options.filter(isFixed).length ? `<span class="chip pick pick3" title="Opciones marcadas ★★★ fijo">★★★ ${s.options.filter(isFixed).length}</span>` : ''}
           ${flags.some((x) => x.level === 'error') ? '<span class="chip err">error</span>' : flags.length ? '<span class="chip warn">revisar</span>' : ''}
+          ${s.options.length > 1 && HEAT_CATS.has(c.key) ? `<button class="btn small ghost" data-action="cmp-clear" data-cat="${c.key}" ${markedIds(c.key).length ? '' : 'hidden'}>Desmarcar ${markedIds(c.key).length}</button>` : ''}
           ${s.options.length > 1 ? `<button class="btn small ghost" data-action="compare" data-cat="${c.key}">${compareLabel(c.key, shown)}</button>` : ''}
         </div>
       </div>
@@ -1839,6 +1888,7 @@ function detailsModal(cat, id, { focusLink = false } = {}) {
       <div class="m-hero">
         ${thumb(p, cat)}
         <div>
+          ${amazonLink(p, { cls: 'btn' })}
           <div class="chips">${chipsFor(p, cat)}</div>
           <table class="t" style="margin-top:8px">
             <tr><th>Producto</th><td class="r">${usd(c.subtotal)}</td></tr>
@@ -1896,7 +1946,7 @@ function detailsModal(cat, id, { focusLink = false } = {}) {
     <div class="m-foot">
       <button class="btn danger ghost" data-action="delete" data-cat="${cat}" data-id="${id}">Eliminar opción</button>
       <span class="spacer"></span>
-      ${p.url ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">Abrir en Amazon ↗</a>` : ''}
+      ${amazonLink(p, { cls: 'btn' })}
       ${asinOf(p) ? `<button class="btn" data-action="refresh-modal" data-cat="${cat}" data-id="${id}">↻ Actualizar con mi sesión</button>` : ''}
       <button class="btn primary" data-action="save-details">Guardar</button>
     </div>`);
@@ -2116,39 +2166,130 @@ function savePaid() {
   toast(changed ? `Precio pagado guardado (${changed}). El total del armado ya no cambia con Amazon.` : 'Sin cambios.');
 }
 
+// Escala de colores: cada valor se ubica entre el peor (0) y el mejor (1) de la fila. Sin color si falta el dato,
+// si hay menos de dos datos o si todos son iguales.
+function heatScores(vals, better = 'high') {
+  const nums = vals.filter((v) => v != null && Number.isFinite(v));
+  if (nums.length < 2) return vals.map(() => null);
+  const lo = Math.min(...nums), hi = Math.max(...nums);
+  if (lo === hi) return vals.map(() => null);
+  return vals.map((v) => (v == null || !Number.isFinite(v) ? null : better === 'low' ? (hi - v) / (hi - lo) : (v - lo) / (hi - lo)));
+}
+const heatCls = (sc) => (sc == null ? '' : `heat h${Math.round(sc * 4)}`);
+const heatTitle = (sc) => (sc == null ? '' : sc === 1 ? ' title="El mejor de la fila"' : sc === 0 ? ' title="El peor de la fila"' : '');
+
+// Guías de referencia por categoría (botón «i» junto al nombre).
+// Cables DisplayPort: Hz máximos aproximados sin compresión (RGB 4:4:4, temporización CVT-RB2); cada monitor varía unos Hz.
+const GUIDES = {
+  accessories: {
+    title: 'Guía: clases de cable DisplayPort (certificación VESA)',
+    body: () => `<table class="t guide">
+      <thead><tr><th>Clase de cable</th><th>Modo DP</th><th class="r">Bruto / útil</th><th class="r">1080p<br>8 / 10 bits</th><th class="r">1440p<br>8 / 10 bits</th><th class="r">4K<br>8 / 10 bits</th></tr></thead>
+      <tbody>
+        <tr><th>DP8K</th><td>DP 1.4 · HBR3</td><td class="r">32,4 / ~25,9 Gbps</td><td class="r">~400 / ~330 Hz</td><td class="r">~250 / ~200 Hz</td><td class="r">~120 / ~97 Hz</td></tr>
+        <tr><th>DP40</th><td>DP 2.1 · UHBR10</td><td class="r">40 / ~38,7 Gbps</td><td class="r">~550 / ~465 Hz</td><td class="r">~350 / ~290 Hz</td><td class="r">~175 / ~140 Hz</td></tr>
+        <tr><th>DP54</th><td>DP 2.1 · UHBR13.5</td><td class="r">54 / ~52,2 Gbps</td><td class="r">~690 / ~585 Hz</td><td class="r">~450 / ~375 Hz</td><td class="r">~230 / ~185 Hz</td></tr>
+        <tr><th>DP80</th><td>DP 2.1 · UHBR20</td><td class="r">80 / ~77,4 Gbps</td><td class="r">~880 / ~770 Hz</td><td class="r">~610 / ~515 Hz</td><td class="r">~320 / ~265 Hz</td></tr>
+      </tbody></table>
+      <ul class="guide-notes">
+        <li>Hz máximos aproximados <b>sin compresión</b> (RGB 4:4:4, temporización CVT-RB2). Cada monitor usa su propia temporización y puede variar unos Hz.</li>
+        <li><b>DSC</b> (compresión visualmente sin pérdida, hasta ~3:1) estira cualquier fila si la tarjeta y el monitor lo soportan: con DSC un DP8K puede llevar 4K a 240 Hz.</li>
+        <li>El cable no sube el límite: manda el puerto más lento de la cadena. Un DP80 en un monitor DP 1.4 trabaja como DP8K.</li>
+        <li>Las clases DP80, DP54 y DP40 sirven también en puertos DP 1.4. Busca el sello <b>VESA Certified</b>.</li>
+        <li>Para comparar los cables de esta lista usa los filtros <b>Certificación</b> y <b>Ancho de banda</b>.</li>
+      </ul>`,
+  },
+};
+function guideModal(cat) {
+  const g = GUIDES[cat];
+  if (!g) return;
+  openModal(`<div class="m-head"><h2>${esc(g.title)}</h2><button class="btn ghost" data-action="close" aria-label="Cerrar">✕</button></div>
+    <div class="m-body"><div class="guide-wrap">${g.body()}</div></div>`);
+}
+
 function compareModal(cat) {
   const s = slot(cat);
-  const ps = compareList(cat);
+  const heat = HEAT_CATS.has(cat);
+  const { ps, marked } = compareSet(cat);
+  if (ps.length < 2) return closeModal();
   const costs = ps.map((p) => lineCost(p, S()));
   const best = (arr, fn) => { const vals = arr.map(fn).filter((x) => x != null); return vals.length ? Math.min(...vals) : null; };
   const minTotal = best(costs, (c) => c.total);
   const maxRating = Math.max(...ps.map((p) => p.rating || 0));
-  const tagKeys = tagFields(ps, cat).map(([k, l]) => [k, l]);
-  const row = (label, fn) => `<tr><th>${label}</th>${ps.map((p, i) => `<td>${fn(p, costs[i])}</td>`).join('')}</tr>`;
-  // Características (sin repetir el consumo ni las etiquetas de compatibilidad de abajo); la mejor numérica, resaltada.
+  // Con escala de colores, las características cubren las etiquetas que repiten (julios, tomas, VPR).
+  const allTags = tagFields(ps, cat).map(([k, l]) => [k, l]);
+  const tagKeys = heat ? allTags.filter(([k]) => !featuresFor(cat).some((f) => f.tag === k)) : allTags;
+  const wins = ps.map(() => 0);
+  let scored = 0;
+  const row = (label, fn) => `<tr><th>${label}</th>${ps.map((p, i) => `<td>${fn(p, costs[i], i)}</td>`).join('')}</tr>`;
+  // Fila con escala: valores numéricos (o null) y cómo se muestra cada celda. Suma al conteo de «Gana en».
+  const hrow = (label, vals, better, fn) => {
+    const sc = heatScores(vals, better);
+    if (sc.some((x) => x != null)) { scored++; sc.forEach((x, i) => { if (x === 1) wins[i]++; }); }
+    return `<tr><th>${label}</th>${ps.map((p, i) => `<td class="${heatCls(sc[i])}"${heatTitle(sc[i])}>${fn(p, costs[i], i)}</td>`).join('')}</tr>`;
+  };
+  // Características (sin repetir el consumo ni las etiquetas de compatibilidad de abajo).
   const featRows = featuresFor(cat).filter((f) => f.key !== 'watts' && !tagKeys.some(([k]) => k === f.tag)).map((f) => {
     const vals = ps.map((p) => featureValue(f, p, cat));
     if (!vals.some((x) => x != null)) return '';
+    const cell = (i) => esc(fmtFeature(f, vals[i]));
+    // Con escala: las numéricas y las de texto que tienen orden de calidad (rank); las demás (tipo, marca) sin color.
+    if (heat && (f.type !== 'cat' || f.rank)) {
+      const nums = f.type === 'cat' ? vals.map((x) => (x == null ? null : f.rank(x))) : vals;
+      return hrow(esc(f.label), nums, f.type === 'cat' ? 'high' : f.better, (p, c, i) => cell(i));
+    }
     const nums = f.type === 'cat' ? [] : vals.filter((x) => x != null);
     const top = new Set(nums).size > 1 ? (f.better === 'low' ? Math.min(...nums) : Math.max(...nums)) : null;
-    return `<tr><th>${esc(f.label)}</th>${vals.map((x) => `<td><span class="${x != null && x === top ? 'best' : ''}">${esc(fmtFeature(f, x))}</span></td>`).join('')}</tr>`;
+    return `<tr><th>${esc(f.label)}</th>${vals.map((x, i) => `<td><span class="${x != null && x === top ? 'best' : ''}">${cell(i)}</span></td>`).join('')}</tr>`;
   }).join('');
-  openModal(`
-    <div class="m-head"><h2>Comparar · ${CAT[cat].name}${ps.length < s.options.length ? ` <span class="muted">(${ps.length} de ${s.options.length}, según tus filtros)</span>` : ''}</h2><button class="btn ghost" data-action="close" aria-label="Cerrar">✕</button></div>
-    <div class="m-body"><div class="scroll-x"><table class="t compare">
-      ${row('', (p) => `${thumb(p, cat)}<div class="opt-title" style="margin-top:6px">${esc(shortTitle(p.title, 70))}</div>`)}
-      ${row('Decisión', (p) => `<span class="${isFixed(p) ? 'best' : 'muted'}" title="${esc(pickOf(p).hint)}">${pickOf(p).stars}</span> ${esc(pickOf(p).short)}`)}
-      ${row('Total en CO', (p, c) => `<span class="${c.total === minTotal ? 'best' : ''}">${usd(c.total)}</span>`)}
-      ${row('Producto', (p, c) => usd(c.subtotal))}
-      ${row('Envío', (p, c) => (c.shipping == null ? '—' : c.shipping === 0 ? 'Gratis' : usd(c.shipping)))}
-      ${row('Impuestos import.', (p, c) => `${usd(c.importFees)}${c.feesSource === 'estimado' && c.importFees ? ' (est.)' : ''}`)}
-      ${row(`&lt; US$${S().threshold}`, (p, c) => (c.price == null ? '—' : c.overThreshold ? '<span class="chip warn">No</span>' : '<span class="chip ok">Sí</span>'))}
-      ${row('Calificación', (p) => (p.rating ? `<span class="${p.rating === maxRating ? 'best' : ''}">★ ${p.rating}</span> <span class="muted">(${(p.reviews || 0).toLocaleString('es-CO')})</span>` : '—'))}
+  const shipTxt = (c) => (c.shipping == null ? '—' : c.shipping === 0 ? 'Gratis' : usd(c.shipping));
+  const feesTxt = (c) => `${usd(c.importFees)}${c.feesSource === 'estimado' && c.importFees ? ' (est.)' : ''}`;
+  const ivaTxt = (c) => (c.price == null ? '—' : c.overThreshold ? '<span class="chip warn">No</span>' : '<span class="chip ok">Sí</span>');
+  const rateTxt = (p, hl) => (p.rating ? `<span class="${hl && p.rating === maxRating ? 'best' : ''}">★ ${p.rating}</span> <span class="muted">(${(p.reviews || 0).toLocaleString('es-CO')})</span>` : '—');
+  const money = heat ? [
+    hrow('Total en CO', costs.map((c) => c.total), 'low', (p, c) => usd(c.total)),
+    hrow('Producto', costs.map((c) => c.subtotal), 'low', (p, c) => usd(c.subtotal)),
+    hrow('Envío', costs.map((c) => c.shipping), 'low', (p, c) => shipTxt(c)),
+    hrow('Impuestos import.', costs.map((c) => c.importFees), 'low', (p, c) => feesTxt(c)),
+    hrow(`&lt; US$${S().threshold}`, costs.map((c) => (c.price == null ? null : c.overThreshold ? 0 : 1)), 'high', (p, c) => ivaTxt(c)),
+    hrow('Calificación', ps.map((p) => p.rating || null), 'high', (p) => rateTxt(p, false)),
+    hrow('Reseñas', ps.map((p) => p.reviews || null), 'high', (p) => (p.reviews ? p.reviews.toLocaleString('es-CO') : '—')),
+  ].join('') : [
+    row('Total en CO', (p, c) => `<span class="${c.total === minTotal ? 'best' : ''}">${usd(c.total)}</span>`),
+    row('Producto', (p, c) => usd(c.subtotal)),
+    row('Envío', (p, c) => shipTxt(c)),
+    row('Impuestos import.', (p, c) => feesTxt(c)),
+    row(`&lt; US$${S().threshold}`, (p, c) => ivaTxt(c)),
+    row('Calificación', (p) => rateTxt(p, true)),
+  ].join('');
+  const tagRows = tagKeys.map(([k, l]) => {
+    const vals = ps.map((p) => detectTags(p, cat)[k]);
+    const n = vals.map((v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v)));
+    return heat && n.some((x) => x != null) ? hrow(esc(l), n, 'high', (p, c, i) => esc(vals[i] ?? '—')) : row(esc(l), (p, c, i) => esc(vals[i] ?? '—'));
+  }).join('');
+  const sub = marked ? `${ps.length} marcados` : ps.length < s.options.length ? `${ps.length} de ${s.options.length}, según tus filtros` : '';
+  // Las filas se arman antes que la de «Gana en»: cada hrow suma al conteo.
+  const body = `
+      ${money}
       ${row('Vendedor', (p) => esc(p.manual ? p.store : p.seller || '—'))}
       ${row('Disponibilidad', (p) => esc(p.availability || '—'))}
-      ${row('Consumo', (p) => `${estimateWatts(p, cat)} W`)}
+      ${heat ? '' : row('Consumo', (p) => `${estimateWatts(p, cat)} W`)}
       ${featRows}
-      ${tagKeys.map(([k, l]) => row(esc(l), (p) => esc(detectTags(p, cat)[k] ?? '—'))).join('')}
+      ${tagRows}`;
+  const maxWins = Math.max(...wins);
+  openModal(`
+    <div class="m-head"><h2>Comparar · ${CAT[cat].name}${sub ? ` <span class="muted">(${sub})</span>` : ''}</h2><button class="btn ghost" data-action="close" aria-label="Cerrar">✕</button></div>
+    <div class="m-body">
+      ${heat ? `<div class="heat-bar">
+        <span class="heat-legend" aria-hidden="true"><i class="h0"></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i></span>
+        <span class="muted">Peor → mejor en cada fila · sin color: sin dato o todos iguales</span>
+        ${marked ? `<button class="btn small ghost" data-action="cmp-all" data-cat="${cat}">Comparar las filtradas</button>` : ''}
+      </div>` : ''}
+      <div class="scroll-x"><table class="t compare${heat ? ' heatmap' : ''}">
+      ${row('', (p) => `${heat ? `<button class="btn small ghost cmp-drop" data-action="cmp-drop" data-cat="${cat}" data-id="${p.id}" title="Quitar de la comparación" aria-label="Quitar de la comparación">✕</button>` : ''}${thumb(p, cat)}<div class="opt-title" style="margin-top:6px">${esc(shortTitle(p.title, 70))}</div>`)}
+      ${heat && scored ? `<tr class="wins"><th>Gana en</th>${wins.map((w) => `<td class="${w === maxWins && w ? 'top' : ''}"><b>${w}</b> <span class="muted">de ${scored}</span>${w === maxWins && w ? ' 🏆' : ''}</td>`).join('')}</tr>` : ''}
+      ${row('Decisión', (p) => `<span class="${isFixed(p) ? 'best' : 'muted'}" title="${esc(pickOf(p).hint)}">${pickOf(p).stars}</span> ${esc(pickOf(p).short)}`)}
+      ${body}
       ${row('', (p) => `<button class="btn small ${s.selected.includes(p.id) ? '' : 'primary'}" data-action="select-close" data-cat="${cat}" data-id="${p.id}">${s.selected.includes(p.id) ? 'Elegido ✓' : 'Elegir'}</button>`)}
     </table></div></div>`);
 }
@@ -2225,6 +2366,16 @@ document.addEventListener('click', async (e) => {
       return toast('En la pestaña de la tienda pulsa el marcador «➕ Armador PC». Si dice «abre amazon.com», reinstálalo desde 🔌 Conector.', false, 8000);
     }
     case 'compare': return compareModal(cat);
+    case 'guide': return guideModal(cat);
+    case 'cmp-clear': setMarks(cat, []); document.querySelectorAll(`[data-cmp][data-cat="${cat}"]`).forEach((x) => { x.checked = false; }); renderMarks(cat); return modal.open ? compareModal(cat) : undefined;
+    case 'cmp-all': setMarks(cat, []); render(); return compareModal(cat);
+    case 'cmp-drop': {
+      // Quita esa columna: lo comparado pasa a ser «marcado» sin ella.
+      const ids = compareSet(cat).ps.map((o) => o.id).filter((x) => x !== id);
+      setMarks(cat, ids);
+      render();
+      return ids.length >= 2 ? compareModal(cat) : closeModal();
+    }
     case 'opt-clear': setOptView(cat, NO_FILTERS); return render();
     case 'opt-dir': setOptView(cat, { dir: optView(cat).dir === 'asc' ? 'desc' : 'asc' }); return renderOptions(cat);
     case 'add-manual': return manualModal(cat);
@@ -2343,7 +2494,15 @@ function onViewChange(el) {
   renderOptions(cat);
 }
 document.addEventListener('input', (e) => { if (e.target.matches?.('input[data-view]:not([type="checkbox"])')) onViewChange(e.target); });
-document.addEventListener('change', (e) => { if (e.target.matches?.('select[data-view], input[type="checkbox"][data-view]')) onViewChange(e.target); });
+document.addEventListener('change', (e) => {
+  if (e.target.matches?.('select[data-view], input[type="checkbox"][data-view]')) onViewChange(e.target);
+  if (e.target.matches?.('input[data-cmp]')) {
+    const { cat, cmp } = e.target.dataset;
+    const ids = markedIds(cat).filter((x) => x !== cmp);
+    setMarks(cat, e.target.checked ? [...ids, cmp] : ids);
+    renderMarks(cat);
+  }
+});
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
