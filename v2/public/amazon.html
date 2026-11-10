@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abriendo Amazon…</title>
+<style>
+  body { margin: 0; padding: 24px 16px; font: 16px/1.5 system-ui, sans-serif; background: #1c1b1a; color: #efece6; }
+  .muted { color: #a29d93; font-size: 14px; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<p>Abriendo amazon.com en esta pestaña…</p>
+<div id="help" class="muted" hidden>
+  <p>¿Se abrió la app de Amazon en vez de esta pestaña? En Android: <b>Ajustes → Apps → Amazon Shopping → Abrir de forma predeterminada</b> y desactiva «Abrir vínculos compatibles». Luego vuelve al armador y pulsa de nuevo «Conectar Amazon».</p>
+</div>
+<script>
+  // Puente para celulares: Android manda a la app de Amazon los enlaces abiertos con un toque.
+  // Esta página es del armador (no la intercepta ninguna app) y navega a amazon.com sin gesto del usuario,
+  // así la pestaña sigue en el navegador y conserva la relación con el armador (window.opener).
+  // #/ruta opcional (p. ej. #/s?k=ssd) para abrir una página concreta de amazon.com.
+  const route = /^#\/(?!\/)/.test(location.hash) ? location.hash.slice(1) : '/';
+  addEventListener('load', () => setTimeout(() => location.replace('https://www.amazon.com' + route), 700));
+  setTimeout(() => { document.getElementById('help').hidden = false; }, 4000);
+</script>
+</body>
+</html>

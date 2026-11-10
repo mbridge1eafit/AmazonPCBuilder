@@ -1,0 +1,16 @@
+{
+  "name": "armador-pc-v2",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Armador PC V2: planea y compra un PC por piezas con el costo real en Colombia o Miami, varias tiendas, historial y compatibilidad.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test",
+    "migrate": "node scripts/migrate-v1.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
