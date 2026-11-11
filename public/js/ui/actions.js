@@ -78,9 +78,11 @@ onChange('cand-alert', (el) => {
 });
 
 // ---------- actualizar ----------
-on('refresh-build', () => {
-  const plan = refresh.start({ kind: 'build' });
-  if (!plan.jobs.length) toast(plan.skipped.length ? `Todo al día: ${plan.skipped.length} filas leídas hace menos de ${st().settings.refreshMinutes} min.` : 'No hay filas con enlace para leer.');
+// «Actualizar armado» lee cada fila como máximo una vez al día; «Forzar actualización» (data-force) relee todo.
+on('refresh-build', (el) => {
+  const force = el.dataset.force === '1';
+  const plan = refresh.start({ kind: 'build' }, { force });
+  if (!plan.jobs.length) toast(plan.skipped.length ? `Todo al día: ${plan.skipped.length} filas ya se leyeron hoy. Usa «Forzar actualización» para releerlas.` : 'No hay filas con enlace para leer.');
   else go('#/actualizar');
 });
 on('refresh-product', (el) => {
@@ -382,7 +384,7 @@ on('paid-orders', async (el) => {
   const cands = ids.map(candById).filter(Boolean);
   const items = cands.map((c) => st().products[c.productId]).filter((p) => p.ids?.asin).map((p) => ({ asin: p.ids.asin, query: orderQuery(p.title) }));
   if (!items.length) return toast('Ninguno de estos productos tiene ASIN de Amazon.');
-  if (!link.amazonAlive()) link.openAmazon();
+  if (!link.amazonAlive()) link.connectChannel(link.AMAZON_ORIGIN);
   ui.paidProgress = 'Esperando el conector de Amazon…';
   refreshDialog();
   try {
@@ -458,8 +460,8 @@ on('restore-seed', async () => {
   toast('Datos de ejemplo restaurados.');
 });
 
-// ---------- agregar desde la ficha de Amazon (marcador) ----------
-link.onAdd((msg, src) => {
+// ---------- agregar desde la ficha de Amazon (extensión o marcador) ----------
+link.onAdd((msg, reply) => {
   let d;
   try { d = sanitizeAmazon(msg.product); } catch { return; }
   const cat = CAT[msg.cat] ? msg.cat : 'accessories';
@@ -471,7 +473,7 @@ link.onAdd((msg, src) => {
     if (!build().candidates.some((c) => c.productId === p.id)) build().candidates.push(newCandidate(p.id, cat));
     text = `Agregado a ${CAT[cat].name} en «${build().name}»`;
   });
-  try { src.win.postMessage({ type: 'pcb:ack', text }, src.origin); } catch { /* cerrada */ }
+  reply(text);
   toast(text);
 });
 

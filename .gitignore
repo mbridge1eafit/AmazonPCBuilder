@@ -11,3 +11,6 @@ data/store.json.tmp
 !/README.md
 /Guía de Instalación PC Bridge/
 /.claude/
+
+# Extensión: el conector lo genera el servidor (npm start / npm run extension)
+extension/connector.js

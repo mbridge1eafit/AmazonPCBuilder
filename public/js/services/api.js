@@ -21,7 +21,9 @@ export async function putStore(state, { force = false } = {}) {
 }
 
 export const resetStore = async () => (await json(await fetch('/api/store/reset', { method: 'POST' }))).body;
-export const connectorVersion = async () => (await json(await fetch('/api/connector/version'))).body.version;
+/** { version, extensionDir } del conector que sirve el servidor. */
+export const connectorInfo = async () => (await json(await fetch('/api/connector/version'))).body;
+export const connectorVersion = async () => (await connectorInfo()).version;
 export const connectorCode = async () => (await fetch('/api/connector')).text();
 export const trm = async () => (await json(await fetch('/api/trm'))).body;
 export const resolveShort = async (url) => (await json(await fetch(`/api/resolve?url=${encodeURIComponent(url)}`))).body.url;

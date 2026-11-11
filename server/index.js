@@ -10,10 +10,11 @@ import { createConnector } from './connector-bundle.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
+const EXTENSION = path.join(ROOT, 'extension');
 const PORT = Number(process.env.PORT) || 4330;
 const HOST = process.env.HOST || '127.0.0.1';
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const TRM_URL = 'https://www.datos.gov.co/resource/32sa-8pi3.json?$order=vigenciadesde%20DESC&$limit=1';
 
 export function createServer({ dataDir = path.join(ROOT, 'data'), fetchImpl = fetch } = {}) {
@@ -47,7 +48,7 @@ export function createServer({ dataDir = path.join(ROOT, 'data'), fetchImpl = fe
       return r.ok ? send(res, 200, { ok: true, rev: r.rev }) : send(res, 409, { error: 'Otro dispositivo guardó cambios', current: r.current });
     },
     'POST /api/store/reset': async (req, res) => send(res, 200, await repo.seed()),
-    'GET /api/connector/version': async (req, res) => send(res, 200, { version: await connector.version() }),
+    'GET /api/connector/version': async (req, res) => send(res, 200, { version: await connector.version(), extensionDir: EXTENSION }),
     'GET /api/connector': async (req, res) => {
       // Detrás de `tailscale serve` (celular) el armador se abre por https: el origen del marcador debe coincidir.
       const host = req.headers.host || '';
@@ -108,5 +109,7 @@ export function createServer({ dataDir = path.join(ROOT, 'data'), fetchImpl = fe
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // La extensión de Chrome carga extension/connector.js desde el disco: se regenera en cada arranque.
+  await createConnector(path.join(PUBLIC, 'js', 'connector')).writeExtension(EXTENSION).catch((e) => console.error('No pude escribir la extensión:', e.message));
   createServer().listen(PORT, HOST, () => console.log(`Armador PC → http://localhost:${PORT}`));
 }

@@ -216,12 +216,12 @@ test('precio de tienda y edición manual con marca e historial', () => {
   assert.equal(priceSeries(p)[0].n, 2);
 });
 
-test('plan de actualización: canales, omite lo reciente en el armado y lo manual', () => {
+test('plan de actualización: canales, omite lo leído hoy en el armado y lo manual', () => {
   const { st, env, b } = setup();
-  const now = Date.parse('2026-11-09T12:00:00Z');
+  const now = new Date(2026, 10, 9, 18, 0).getTime();
   const { p } = add(st, b, 'cpu', 'CPU', [
     ['amazon-co', { url: 'https://www.amazon.com/dp/B000000001' }],
-    ['newegg', { url: 'https://www.newegg.com/p/1', fetchedAt: '2026-11-09T11:58:00Z', readStatus: 'ok' }],
+    ['newegg', { url: 'https://www.newegg.com/p/1', fetchedAt: new Date(2026, 10, 9, 0, 30).toISOString(), readStatus: 'ok' }],
   ], { decision: 2 });
   p.ids.asin = 'B000000001';
   st.stores['custom-x'] = { key: 'custom-x', merchant: 'manual', name: 'X', destination: 'co', currency: 'USD', taxMode: 'included' };
@@ -231,6 +231,12 @@ test('plan de actualización: canales, omite lo reciente en el armado y lo manua
   assert.equal(plan.skipped.length, 1);
   assert.equal(plan.manual.length, 1);
   assert.equal(planRefresh(st, env, { kind: 'product', productId: p.id }, { now }).jobs.length, 2);
+  // Forzar lee todo; al día siguiente vuelve a leerse aunque hayan pasado menos de 24 h.
+  assert.equal(planRefresh(st, env, { kind: 'build' }, { now, force: true }).jobs.length, 2);
+  assert.equal(planRefresh(st, env, { kind: 'build' }, { now: new Date(2026, 10, 10, 0, 10).getTime() }).jobs.length, 2);
+  // Una lectura de hoy con error no cuenta como leída.
+  p.offers[1].readStatus = 'error';
+  assert.equal(planRefresh(st, env, { kind: 'build' }, { now }).jobs.length, 2);
 });
 
 test('alertas: objetivo alcanzado, bajada y solo Colombia', () => {

@@ -54,7 +54,6 @@ export const DEFAULT_SETTINGS = {
   locker: { enabled: true, unit: 'lb', rate: 2.5, min: 10, days: '5–8' },
   psuMargin: 1.3,
   staleDays: 3,
-  refreshMinutes: 10,
   alerts: { onRefresh: true, badge: true, repeat: false, minDrop: 1, defaults: 'target' },
 };
 

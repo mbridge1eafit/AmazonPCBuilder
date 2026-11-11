@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Armador PC — conector",
+  "version": "1.0.0",
+  "description": "Lee precios de Amazon y de las tiendas con tu sesión y se los pasa al Armador PC local. Se recarga sola con cada página.",
+  "minimum_chrome_version": "116",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["scripting", "storage"],
+  "host_permissions": [
+    "http://localhost/*", "http://127.0.0.1/*", "https://*.ts.net/*",
+    "https://*.amazon.com/*", "https://*.newegg.com/*", "https://*.bestbuy.com/*", "https://*.walmart.com/*",
+    "https://*.target.com/*", "https://*.bhphotovideo.com/*", "https://*.microcenter.com/*", "https://*.mercadolibre.com.co/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*", "https://*.ts.net/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.amazon.com/*", "https://*.newegg.com/*", "https://*.bestbuy.com/*", "https://*.walmart.com/*",
+        "https://*.target.com/*", "https://*.bhphotovideo.com/*", "https://*.microcenter.com/*", "https://*.mercadolibre.com.co/*"
+      ],
+      "js": ["connector.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Armador PC: mostrar el panel en esta tienda o abrir el armador" }
+}
