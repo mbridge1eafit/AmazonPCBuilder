@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readStorePrice, storePriceNumber, storeOfUrl, urlFitsStore, storeBlocked } from '../public/js/connector/store-parse.js';
+import { readStorePrice, storePriceNumber, storeOfUrl, urlFitsStore, storeBlocked, targetPriceUrl, readTargetApi } from '../public/js/connector/store-parse.js';
 
 const ld = (o) => `<script type="application/ld+json">${JSON.stringify(o)}</script>`;
 
@@ -49,7 +49,7 @@ test('readStorePrice: microdatos y patrones propios cuando no hay JSON-LD', () =
   assert.equal(readStorePrice('<meta content="1.234.000" itemprop="price">', 'mercadolibre').price, 1234000);
   assert.equal(readStorePrice('<meta property="product:price:amount" content="99.5">', 'newegg').price, 99.5);
   assert.equal(readStorePrice('<script>{"currentPrice":279.99,"regularPrice":299.99}</script>', 'bestbuy').price, 279.99);
-  assert.equal(readStorePrice('<script>{"FinalPrice":189.99}</script>', 'newegg').price, 189.99);
+  assert.equal(readStorePrice('<script>{"FinalPrice":189.99}</script>', 'newegg').price, null); // suelto: puede ser de un patrocinado
   assert.equal(readStorePrice('<span data-price="1,049.99">', 'microcenter').price, 1049.99);
   assert.equal(readStorePrice('<html><title>Nada</title></html>', 'newegg').price, null);
 });
@@ -64,6 +64,49 @@ test('readStorePrice: Newegg toma el FinalPrice del ítem de la ficha, no el de 
   assert.equal(readStorePrice(market, 'newegg').price, 77.5);
 });
 
+test('readStorePrice: Newegg 2026 lee ItemDetail de __initialState__ (no los patrocinados)', () => {
+  // Recorte real (990 PRO 1TB, N82E16820147860): sin JSON-LD de producto; la caja de compra es un vendedor 9SIA…
+  // y el primer FinalPrice del estado es de un patrocinado (849.99).
+  const state = {
+    SponsoredItems: { SponsoredData: [{ ItemCell: { Item: '34-360-412', UnitCost: 899.99, FinalPrice: 849.99 } }] },
+    ItemDetail: { Item: '9SIAG5BKTM1255', Description: { Title: 'SAMSUNG 990 PRO SSD 1TB' }, OriginalUnitPrice: 251, UnitCost: 252.99, InstantRebateAmount: 1.99, ShippingCharge: 0, FinalPrice: 251, Instock: true },
+  };
+  const html = '<link rel="canonical" href="https://www.newegg.com/samsung-1tb-990-pro-nvme-2-0/p/N82E16820147860"/>'
+    + `<script defer="">window.__initialState__ = ${JSON.stringify(state)}</script>`;
+  assert.deepEqual(readStorePrice(html, 'newegg'), { price: 251, currency: 'USD', title: 'SAMSUNG 990 PRO SSD 1TB', inStock: true, listPrice: 252.99 });
+  // Lexar NM1090 (/p/0D9-003V-000C9): FinalPrice 237.84 = 229.99 + 7.85 de envío → el precio es 229.99.
+  const ship = { ItemDetail: { Item: '9SIA4P0KKY0219', OriginalUnitPrice: 229.99, UnitCost: 229.99, InstantRebateAmount: 0, ShippingCharge: 7.85, FinalPrice: 237.84, Instock: true } };
+  assert.equal(readStorePrice(`<script>window.__initialState__ = ${JSON.stringify(ship)};</script>`, 'newegg').price, 229.99);
+});
+
+test('readStorePrice: Walmart 2026 lee __NEXT_DATA__', () => {
+  // Recorte real (Lexar NM1090 PRO, /ip/17755808205): sin JSON-LD de producto.
+  const data = { props: { pageProps: { initialData: { data: { product: {
+    usItemId: '17755808205', name: 'Lexar Professional NM1090 PRO 1TB', availabilityStatus: 'IN_STOCK',
+    priceInfo: { currentPrice: { price: 229.99, priceString: '$229.99', currencyUnit: 'USD' }, wasPrice: { price: 259.99 } },
+  } } } } } };
+  const html = `<title>x - Walmart.com</title>${ld({ '@type': 'WebPage' })}<script id="__NEXT_DATA__" type="application/json" nonce="n">${JSON.stringify(data)}</script>`;
+  assert.deepEqual(readStorePrice(html, 'walmart'), { price: 229.99, currency: 'USD', title: 'Lexar Professional NM1090 PRO 1TB', inStock: true, listPrice: 259.99 });
+  assert.equal(readStorePrice('<script id="__NEXT_DATA__" type="application/json">{oops</script>', 'walmart').price, null);
+});
+
+test('Target: URL de la API de precios y lectura de su respuesta', () => {
+  // Recorte real: la configuración de la ficha trae la clave escapada dentro de un JSON en texto.
+  const html = '<script>window.__TGT_DATA__={"__CONFIG__":"{\\"services\\":{\\"apiKey\\":\\"9f36aeafbe60771e321a7cc95a78140772ab3e96\\"}}"}</script>';
+  const page = 'https://www.target.com/p/sandisk-optimus-gx-pro-850x/-/A-1011747449';
+  assert.equal(targetPriceUrl(html, page), 'https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&tcin=1011747449&pricing_store_id=3991&channel=WEB');
+  assert.equal(targetPriceUrl(html, 'https://www.target.com/c/ssd'), null);
+  assert.equal(targetPriceUrl('<title>Target</title>', page), null);
+  // Respuesta real de pdp_client_v1 (recortada).
+  const json = { data: { product: { tcin: '1011747449', item: { product_description: { title: 'SanDisk Optimus GX PRO 850X SDSP81100TAN' } },
+    price: { current_retail: 299.99, display_was_now: false, formatted_current_price: '$299.99', reg_retail: 299.99, location_id: 3991 } } } };
+  assert.deepEqual(readTargetApi(json), { price: 299.99, currency: 'USD', title: 'SanDisk Optimus GX PRO 850X SDSP81100TAN', inStock: null });
+  json.data.product.price = { current_retail: 249.99, reg_retail: 299.99 };
+  assert.equal(readTargetApi(json).listPrice, 299.99);
+  assert.equal(readTargetApi({ errors: [{ message: 'no product' }] }).price, null);
+  assert.equal(readTargetApi(null).price, null);
+});
+
 test('readStorePrice: JSON-LD inválido no rompe', () => {
   const html = '<script type="application/ld+json">{oops</script><meta itemprop="price" content="10.00">';
   assert.equal(readStorePrice(html, 'newegg').price, 10);
@@ -72,6 +115,8 @@ test('readStorePrice: JSON-LD inválido no rompe', () => {
 test('storeBlocked: páginas de verificación', () => {
   assert.ok(storeBlocked('<html><head><title>Just a moment...</title></head>'));
   assert.ok(storeBlocked('<title>Attention Required! | Cloudflare</title>'));
+  assert.ok(storeBlocked('<html lang="es-es"><head><title>Un momento…</title>')); // Cloudflare en un Chrome en español
+  assert.ok(storeBlocked('<html><head><title>Robot or human?</title>')); // Walmart (PerimeterX) tras varias lecturas seguidas
   assert.ok(!storeBlocked(`<title>Producto</title>${ld({ '@type': 'Product' })}`));
 });
 

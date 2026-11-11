@@ -758,7 +758,7 @@ La fila de **Amazon del mismo destino del producto no se guarda**: se deriva del
 | `miamiTax` | 0.07 | Sales tax Miami-Dade (6 % FL + 1 % condado) |
 | `psuMargin` | 1.3 | Fuente recomendada = consumo × margen |
 | `staleDays` | 3 (actual 1) | «Precio desactualizado» después de N días |
-| `refreshMinutes` | 10 | «Actualizar todo» omite lo leído hace menos de N min |
+| ~~`refreshMinutes`~~ | — | Reemplazado: «Actualizar todo» omite lo leído bien hoy (máx. 1 vez al día); «Forzar actualización» relee todo |
 
 Más el `budget` del armado activo (se edita en el mismo formulario).
 

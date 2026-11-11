@@ -14,14 +14,19 @@ export function channelOf(offer, env) {
   try { return offer.url ? `tab:${new URL(offer.url).origin}` : null; } catch { return null; }
 }
 
+/** Misma fecha del calendario local. @param {number} a @param {number} b */
+export const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+
 /**
+ * «Actualizar armado» lee cada fila como máximo una vez al día: omite lo leído bien hoy (fecha local), salvo `force`.
+ * Fila y producto siempre leen.
  * @param {any} state @param {any} env
  * @param {{ kind: 'build'|'product'|'offer', productId?: string, offerId?: string }} scope
  * @param {{ now?: number, force?: boolean }} [o]
  */
 export function planRefresh(state, env, scope, { now = Date.now(), force = false } = {}) {
   const build = state.builds.find((b) => b.id === state.activeBuildId);
-  const fresh = (o) => o.fetchedAt && o.readStatus === 'ok' && now - Date.parse(o.fetchedAt) < (Number(env.settings.refreshMinutes) || 0) * 60000;
+  const fresh = (o) => o.fetchedAt && o.readStatus === 'ok' && sameDay(Date.parse(o.fetchedAt), now);
   let pairs = [];
   if (scope.kind === 'build') {
     const seen = new Set();

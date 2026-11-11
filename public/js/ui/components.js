@@ -35,6 +35,27 @@ export function thumb(product, size = '') {
 export const statusChip = (s) => (s === 'bought' ? chip(STATUS.bought.label, 'ok') : s === 'planned' ? chip(STATUS.planned.label, 'dash') : chip(STATUS.buy.label, 'acc'));
 
 export const storeName = (env, key) => env.stores[key]?.name || key;
+
+// Íconos oficiales (favicon de cada sitio) en public/img/stores/. Comercio sin ícono → monograma.
+const LOGOS = { amazon: 'amazon.png', newegg: 'newegg.jpg', bestbuy: 'bestbuy.png', walmart: 'walmart.png', target: 'target.png', bhphoto: 'bhphoto.png', microcenter: 'microcenter.png', mercadolibre: 'mercadolibre.png' };
+export const merchantOfStore = (env, key) => env.merchants?.[env.stores[key]?.merchant] || null;
+/** Ícono de un comercio (decorativo: siempre va junto al nombre o a un aria-label). */
+export const merchantLogo = (m, size = '') => (m && LOGOS[m.key]
+  ? html`<img class="slogo ${size}" src="img/stores/${LOGOS[m.key]}" alt="" aria-hidden="true" loading="lazy" decoding="async">`
+  : html`<span class="slogo mono ${size}" aria-hidden="true">${String(m?.mono || 'TDA').slice(0, 3)}</span>`);
+export const storeLogo = (env, key, size = '') => merchantLogo(merchantOfStore(env, key), size);
+/** Ícono + nombre de la tienda. */
+export const storeLabel = (env, key, size = '') => html`<span class="store-lbl">${storeLogo(env, key, size)}${storeName(env, key)}</span>`;
+
+/** Enlace a la ficha de Amazon del producto: la fila de Amazon con URL o, si no, /dp/ASIN. */
+export function amazonUrl(product, env) {
+  const o = (product?.offers || []).find((x) => env.stores[x.store]?.merchant === 'amazon' && x.url);
+  return o?.url || (product?.ids?.asin ? `https://www.amazon.com/dp/${product.ids.asin}` : null);
+}
+/** Botón visible «Ver en Amazon» (abre pestaña nueva). */
+export const amazonLink = (url, { label = 'Ver en Amazon', size = '' } = {}) => (url
+  ? html`<a class="btn btn-amz ${size}" href="${url}" target="_blank" rel="noopener noreferrer" title="Abrir la ficha en amazon.com (pestaña nueva)">${merchantLogo({ key: 'amazon' })}${label}${icon('ext')}</a>`
+  : '');
 export const destShort = (env, d) => env.settings.destinations?.[d]?.short || d;
 
 /** Lectura de una fila: leído hace X / escrito a mano / viejo / error / en espera. */
@@ -93,6 +114,35 @@ export function breakdown(cost, env, product) {
       <div class="src" style="margin-top:4px">${product?.weightLb == null ? 'Falta el peso del producto (Datos para cálculos)' : product?.edited?.weightLb ? 'Peso escrito a mano' : 'Peso de la ficha'} · casillero ${lc.days} días</div>
     </div>` : ''}
   </div>`;
+}
+
+/**
+ * Acordeón de las tiendas que venden un producto, con el total en el destino de cada una (Medellín o Miami).
+ * Agrupa por destino (los totales de destinos distintos no se comparan) y marca la más baja de cada uno.
+ * `<details>` nativo: el morph conserva si está abierto entre re-renders.
+ * @param {any} env @param {any[]} rows filas de offerRows/purchaseRow @param {{ selectedId?: string|null, body?: any }} [o]
+ */
+export function storesAccordion(env, rows, { selectedId = null, body = null } = {}) {
+  if (!rows.length) return '';
+  const dests = Object.keys(env.settings.destinations || {});
+  const di = (d) => { const i = dests.indexOf(d); return i < 0 ? 99 : i; };
+  const sorted = rows.slice().sort((a, b) => di(a.cost.dest) - di(b.cost.dest) || (a.cost.total ?? Infinity) - (b.cost.total ?? Infinity));
+  const best = new Map(); // destino → fila más barata
+  const priced = new Map(); // destino → cuántas con precio
+  for (const r of sorted) if (r.cost.total != null) {
+    if (!best.has(r.cost.dest)) best.set(r.cost.dest, r);
+    priced.set(r.cost.dest, (priced.get(r.cost.dest) || 0) + 1);
+  }
+  const byDest = [...best.values()].map((r) => `${usd(r.cost.total)} ${destShort(env, r.cost.dest)}`).join(' · ');
+  const n = rows.length;
+  return html`<details class="stores">
+    <summary>${icon('down', 'i chev')}${n} tienda${n === 1 ? '' : 's'}${byDest ? html`<span class="muted num" style="font-weight:400">· desde ${byDest}</span>` : ''}</summary>
+    ${body || html`<ul class="stores-list">${sorted.map((r) => html`<li${raw(r.offer.id === selectedId ? ' class="sel"' : '')}>
+      <span style="min-width:0">${storeLabel(env, r.offer.store)}${best.get(r.cost.dest) === r && priced.get(r.cost.dest) > 1 ? html` ${chip('Más bajo', 'ok', { size: 'sm' })}` : ''}${r.offer.id === selectedId ? html` ${chip('Elegida', 'acc', { size: 'sm' })}` : ''}</span>
+      <span class="muted" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${icon('pin', 'i', 'width:13px;height:13px')}${destShort(env, r.cost.dest)}</span>
+      <span class="num r" style="white-space:nowrap">${r.cost.total == null ? html`<span class="muted">sin precio</span>` : html`<strong>${usd(r.cost.total)}</strong>${partialMark(r.cost)}`}${r.cost.original ? html`<br><span class="muted" style="font-size:11px">${copRaw(r.cost.original.total)}</span>` : ''}</span>
+    </li>`)}</ul>`}
+  </details>`;
 }
 
 export const empty = (text, action = '') => html`<div class="empty-state">${text}${action ? html`<div style="margin-top:12px">${raw(String(action))}</div>` : ''}</div>`;

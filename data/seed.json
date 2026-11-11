@@ -127,7 +127,6 @@
   },
   "psuMargin": 1.3,
   "staleDays": 1,
-  "refreshMinutes": 10,
   "alerts": {
    "onRefresh": true,
    "badge": true,

@@ -14,10 +14,10 @@ export function header(route) {
   const am = link.amazon;
   const alive = link.amazonAlive();
   const amazonLabel = alive ? html`<span class="dot" style="background:var(--dot-ok)"></span>Amazon · entrega <strong style="font-weight:600">${am.region === 'co' ? 'Medellín' : am.region === 'us' ? 'Miami' : am.deliverTo || '¿?'}</strong><span class="muted hide-m">· conectado</span>`
-    : html`<span class="dot" style="background:var(--line-strong)"></span>Conectar Amazon`;
+    : html`<span class="dot" style="background:${link.ext.present && !link.ext.ready ? 'var(--warn-strong)' : 'var(--line-strong)'}"></span>${{ opening: 'Abriendo Amazon…', stuck: 'Amazon no responde', 'ext-off': 'Extensión reconectando' }[link.channelStatus(link.AMAZON_ORIGIN).state] || 'Conectar Amazon'}`;
   const plan = planRefresh(st, store.env(), { kind: 'build' });
-  const tabsOn = [...link.tabs.values()].filter((t) => t.connected && t.win && !t.win.closed).length;
   const channels = new Set(plan.jobs.filter((j) => j.channel.startsWith('tab:')).map((j) => j.channel));
+  const tabsOn = [...channels].filter((ch) => link.tabAlive(ch.slice(4))).length;
   const sum = refresh.summary();
   const unseen = st.alertEvents.filter((a) => !a.seen).length;
   const saveTxt = { saving: 'Guardando…', error: `No se pudo guardar: ${store.status.error}`, conflict: 'Conflicto al guardar' }[store.status.save] || '';
@@ -31,13 +31,14 @@ export function header(route) {
       </div>` : ''}
     </div>
     <div class="flex" role="status" aria-label="Estado de conexión">
-      <button class="btn pill-btn" data-act="open-amazon" title="${alive ? `Sesión ${am.loggedIn ? 'iniciada' : 'sin iniciar'} · entrega: ${am.deliverTo}` : 'Abre Amazon y pulsa ahí el marcador'}">${amazonLabel}</button>
+      <button class="btn pill-btn" data-act="open-amazon" title="${alive ? `Sesión ${am.loggedIn ? 'iniciada' : 'sin iniciar'} · entrega: ${am.deliverTo}` : link.ext.present ? 'Conecta Amazon (abre o usa una pestaña de amazon.com)' : 'Abre Amazon y pulsa ahí el marcador'}">${amazonLabel}</button>
       <a class="btn pill-btn hide-m" href="#/actualizar"><span class="dot sq" style="background:${channels.size && tabsOn < channels.size ? 'var(--warn-strong)' : 'var(--dot-ok)'}"></span>Tiendas ${tabsOn} de ${channels.size}${sum.waiting ? html`<span class="muted">· ${sum.waiting} en espera</span>` : ''}</a>
-      ${link.outdated() ? html`<a class="chip c-warn lg" href="#/ajustes/conector">${icon('warn')}Marcador desactualizado</a>` : ''}
+      ${link.outdated() ? html`<a class="chip c-warn lg" href="#/ajustes/conector">${icon('warn')}${link.ext.present ? 'Conector desactualizado' : 'Marcador desactualizado'}</a>` : ''}
     </div>
     <div class="grow"></div>
     ${saveTxt ? html`<span class="save-state ${store.status.save === 'error' || store.status.save === 'conflict' ? 'lv-error' : 'muted'}" role="status">${saveTxt}</span>` : ''}
     <button class="btn btn-p hide-m" data-act="refresh-build">${icon('refresh')}<span class="hide-m">${sum.total && refresh.run.active ? `Actualizando ${sum.done}/${sum.total}` : 'Actualizar armado'}</span><span class="count">${plan.jobs.length}</span></button>
+    <button class="btn hide-m" data-act="refresh-build" data-force="1" aria-label="Forzar actualización" title="Forzar actualización: relee todas las filas del armado, aunque ya se hayan leído hoy">${icon('bolt')}Forzar</button>
     <a class="btn hide-m" href="#/alertas" aria-label="Alertas${unseen ? `, ${unseen} nuevas` : ''}">${icon('bell')}${unseen ? html`<span class="badge">${unseen}</span>` : ''}</a>
     <a class="btn hide-m" href="#/ajustes" aria-label="Ajustes">${icon('gear')}</a>
     <div class="menu">

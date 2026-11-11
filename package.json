@@ -7,7 +7,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "extension": "node server/connector-bundle.js"
   },
   "engines": {
     "node": ">=20"

@@ -39,8 +39,30 @@ export function summary() {
   return { total: run.jobs.length, done: n('done'), running: n('running'), waiting: n('waiting'), error: n('error'), cancelled: n('cancelled') };
 }
 
+/** Origen de la pestaña que atiende un canal ('amazon-co' / 'amazon-us' → amazon.com; 'tab:<origen>' → ese origen). */
+export const originOf = (channel) => (channel.startsWith('amazon') ? link.AMAZON_ORIGIN : channel.slice(4));
+
+/** Con la extensión: por qué no está lista la pestaña del canal, o null si lo está. */
+function extReason(channel) {
+  const c = link.channelStatus(originOf(channel));
+  const name = channel.startsWith('amazon') ? 'Amazon' : new URL(originOf(channel)).hostname.replace(/^www\./, '');
+  if (c.state === 'connected') return null;
+  if (c.state === 'ext-off') return { code: 'ext', text: 'Reconectando con la extensión del conector…', action: '' };
+  if (c.state === 'opening') return { code: 'opening', text: `Abriendo ${name} en una pestaña en segundo plano…`, action: 'Ver pestaña' };
+  if (c.state === 'stuck') return { code: 'stuck', text: `La pestaña de ${name} no responde (¿página de error o verificación?). Ábrela y revísala, o pulsa «Conectar» de nuevo.`, action: 'Ver pestaña' };
+  return { code: 'connect', text: `${name} no tiene una pestaña conectada.`, action: 'Conectar' };
+}
+
 /** Por qué espera un canal y qué hacer. */
 export function waitReason(channel) {
+  if (link.ext.present) {
+    const r = extReason(channel);
+    if (r || !channel.startsWith('amazon')) return r;
+    const want = channel === 'amazon-co' ? 'co' : 'us';
+    const dest = want === 'co' ? 'Medellín' : `Miami ${store.get().settings.destinations?.['us-mia']?.place || '33186'}`;
+    if (link.amazon.region !== want) return { code: 'region', text: `Tu sesión de Amazon entrega en ${link.amazon.deliverTo || 'otra dirección'}. En Amazon cambia «Entregar en» a ${dest}: la extensión lo detecta sola.`, action: 'Ir a Amazon' };
+    return null;
+  }
   if (channel.startsWith('amazon')) {
     const want = channel === 'amazon-co' ? 'co' : 'us';
     const dest = want === 'co' ? 'Medellín' : `Miami ${store.get().settings.destinations?.['us-mia']?.place || '33186'}`;
@@ -70,11 +92,21 @@ export function start(scope, { force = false } = {}) {
     if (inFlight.has(j.offerId) || run.jobs.some((x) => x.offerId === j.offerId && x.state === 'waiting')) continue;
     run.jobs.push({ ...j, state: 'waiting', scope: scope.kind });
   }
-  // Abrir Amazon si hay algo para Amazon y no hay sesión (dentro del gesto del usuario).
-  if (plan.jobs.some((j) => j.channel.startsWith('amazon')) && !link.amazonAlive()) link.openAmazon();
+  if (link.ext.present) ensureChannels();
+  else if (plan.jobs.some((j) => j.channel.startsWith('amazon')) && !link.amazonAlive()) {
+    // Marcador: abrir Amazon si hay algo para Amazon y no hay sesión (dentro del gesto del usuario).
+    link.openAmazon();
+  }
   pump();
   notify();
   return plan;
+}
+
+/** Extensión: conecta cada canal con algo en espera abriendo (o adoptando) su pestaña en segundo plano. */
+function ensureChannels() {
+  const need = new Map();
+  for (const j of run.jobs) if (j.state === 'waiting') need.set(originOf(j.channel), j.channel.startsWith('amazon') ? '' : j.url);
+  for (const [origin, url] of need) if (link.channelStatus(origin).state === 'none') link.connectChannel(origin, { url });
 }
 
 export function cancel() {
@@ -156,6 +188,7 @@ function fail(job, message) {
 export function retry(channel = null) {
   for (const j of run.jobs) if (j.state === 'error' && (!channel || j.channel === channel)) { j.state = 'waiting'; j.error = ''; }
   run.active = true;
+  if (link.ext.present) ensureChannels();
   pump();
   notify();
 }

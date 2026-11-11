@@ -10,11 +10,14 @@ import * as api from '../../services/api.js';
 import * as link from '../../services/connector-link.js';
 import { prefsGet, prefsSet, applyTheme } from '../../state/prefs.js';
 import { ruleActive } from '../../domain/tax.js';
+import { connectionsList, extensionBanner, originsOfState } from '../connections.js';
 
 let connectorHref = '';
 let loaderHref = '';
+let extensionDir = '';
 async function loadConnector() {
   if (connectorHref) return;
+  api.connectorInfo().then((r) => { extensionDir = r.extensionDir || ''; rerender(); }).catch(() => {});
   const code = await api.connectorCode();
   connectorHref = 'javascript:' + encodeURIComponent(code);
   // En Android el marcador completo llega dañado: uno corto carga el conector desde el armador (solo por https/Tailscale).
@@ -26,6 +29,9 @@ on('copy-code', async (el) => {
   try { await navigator.clipboard.writeText(text); toast('Código copiado.'); } catch { toast('No pude copiar: selecciona el texto y cópialo.', { error: true }); }
 });
 on('bookmarklet-click', (el, e) => { e.preventDefault(); toast('Arrástrame a la barra de marcadores; no se usa con clic aquí.'); });
+on('copy-ext-dir', async () => {
+  try { await navigator.clipboard.writeText(extensionDir); toast('Ruta copiada.'); } catch { toast('No pude copiar: selecciona la ruta y cópiala.', { error: true }); }
+});
 on('connector-ok', () => { prefsSet({ connectorInstalled: true }); toast('Listo. Abre Amazon y pulsa el marcador para conectar.'); rerender(); });
 on('theme', (el) => { prefsSet({ theme: el.dataset.value }); applyTheme(); rerender(); });
 on('density', (el) => { prefsSet({ density: el.dataset.value }); applyTheme(); rerender(); });
@@ -121,30 +127,52 @@ export function settingsView(section) {
     calculos: html`<section id="calculos" class="card pad form-row" style="align-items:flex-start"><div style="flex:1 1 100%"><h2>Cálculos y lectura</h2></div>
       ${fld('Margen de la fuente', 'psuMargin', s.psuMargin, { hint: 'Fuente recomendada = consumo × margen, en pasos de 50 W.', w: '240px' })}
       ${fld('Precio viejo después de (días)', 'staleDays', s.staleDays, { hint: 'Marca la lectura como desactualizada.', w: '240px' })}
-      ${fld('No releer lo leído hace menos de (min)', 'refreshMinutes', s.refreshMinutes, { hint: 'Aplica a «Actualizar armado».', w: '240px' })}</section>`,
+      <p class="muted" style="flex:1 1 100%;margin:0;font-size:13px">«Actualizar armado» lee cada fila como máximo una vez al día; «Forzar actualización» las relee todas.</p></section>`,
     alertas: html`<section id="alertas" class="card pad form-row" style="align-items:flex-start"><div style="flex:1 1 100%" class="row"><div><h2>Alertas</h2><p class="muted" style="margin:4px 0 0;font-size:13px">El precio objetivo y las condiciones se configuran en cada producto. Aquí decides cuándo y cómo avisar.</p></div><a class="btn btn-s" href="#/alertas">Ver alertas · ${st.alertEvents.filter((a) => !a.seen).length} nuevas</a></div>
       <fieldset style="flex:1 1 300px;border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px"><legend style="font-size:13px;font-weight:600;margin-bottom:6px">Cuándo avisar</legend>
         ${[['onRefresh', 'Al terminar una actualización, en el resumen de cambios'], ['badge', 'Contador en la campana hasta que la veas'], ['repeat', 'Repetir una alerta ya vista si el precio vuelve a bajar']].map(([k, t]) => html`<label class="chk"><input type="checkbox" data-change="setting" data-path="alerts.${k}"${raw(s.alerts[k] ? ' checked' : '')}>${t}</label>`)}</fieldset>
       <div style="flex:1 1 300px" class="stack">${fld('Ignorar bajadas menores a (US$)', 'alerts.minDrop', s.alerts.minDrop, { hint: 'Evita ruido por centavos y por cambios de TRM.', w: '100%' })}</div></section>`,
-    conector: html`<section id="conector" class="card pad stack"><div><h2>Conector «Armador PC»</h2><p class="muted" style="margin:4px 0 0;font-size:13px">Es un marcador del navegador. Las tiendas bloquean las consultas desde el servidor, así que se leen con tu navegador y tu sesión. El armador no ve tus cookies ni tu contraseña.</p></div>
-      ${link.outdated() ? html`<div class="banner" role="alert">${icon('warn')}<span><strong>El marcador instalado está desactualizado.</strong> La lectura de pedidos queda bloqueada hasta que lo reinstales. Bórralo de la barra y arrastra el nuevo.</span></div>` : ''}
+    conector: html`<section id="conector" class="card pad stack"><div><h2>Conector «Armador PC»</h2><p class="muted" style="margin:4px 0 0;font-size:13px">Las tiendas bloquean las consultas desde el servidor, así que se leen con tu navegador y tu sesión. El armador no ve tus cookies ni tu contraseña.</p></div>
+      ${extensionBanner()}
       <div class="dest-grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
-        <div class="box"><strong>Escritorio (Chrome en Windows)</strong>
-          <ol style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px"><li>Muestra la barra de marcadores (Ctrl+Mayús+B).</li><li>Arrastra este botón a la barra (si ya tenías uno, reemplázalo).</li><li>En Amazon o en cada tienda, pulsa el marcador.</li></ol>
-          ${connectorHref ? html`<a class="bookmarklet" href="${connectorHref}" draggable="true" data-act="bookmarklet-click">+ Armador PC</a>` : html`<span class="muted">Preparando el marcador…</span>`}
-          <span class="muted" style="font-size:12px">Arrastra, no hagas clic. ¿No puedes arrastrar? <button class="btn-link" data-act="copy-code" data-which="full">Copiar código</button> y pégalo como URL de un marcador nuevo.</span></div>
-        <div class="box"><strong>Celular Android (Chrome)</strong>
-          <ol style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px"><li>Copia el código corto (solo funciona con el armador abierto por https, p. ej. Tailscale).</li><li>Guarda un favorito con el nombre «pcb» y pega el código como dirección.</li><li>Abre amazon.com en Chrome (no en la app de Amazon) y activa «Sitio para computadoras».</li><li>Escribe «pcb» en la barra y toca el favorito.</li></ol>
-          <div class="flex" style="flex-wrap:nowrap"><input class="input sm num" readonly value="${loaderHref ? loaderHref.slice(0, 60) + '…' : ''}" aria-label="Código corto del marcador"><button type="button" class="btn" data-act="copy-code" data-which="short">Copiar</button></div>
-          <span class="muted" style="font-size:12px">Si se abre la app de Amazon: Ajustes de Android → Apps → Amazon Shopping → Abrir de forma predeterminada → desactiva «Abrir vínculos compatibles».</span></div>
+        <div class="box ${link.ext.present ? '' : 'warn'}"><div class="flex" style="gap:8px"><strong>Extensión de Chrome (escritorio)</strong>${link.ext.present ? (link.ext.ready ? chip(`Instalada · v${link.ext.extVersion || '?'}`, 'ok', { ico: 'check' }) : chip('Reconectando', 'warn', { ico: 'clock' })) : chip('No detectada', 'warn', { ico: 'warn' })}</div>
+          <span style="font-size:13px">Se carga sola en Amazon y en cada tienda (no hay que pulsar nada), abre las pestañas que hagan falta en segundo plano y se reconecta si recargas la tienda o el armador.</span>
+          <ol style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px">
+            <li>Abre <code>chrome://extensions</code> (escríbelo en la barra de direcciones).</li>
+            <li>Activa el interruptor «Modo de desarrollador» (Developer mode), arriba a la derecha.</li>
+            <li>Pulsa el botón para cargar una extensión sin empaquetar (en inglés, «Load unpacked») y elige esta carpeta:</li>
+          </ol>
+          <div class="flex" style="flex-wrap:nowrap"><input class="input sm num" readonly value="${extensionDir || 'carpeta extension del proyecto'}" aria-label="Carpeta de la extensión"><button type="button" class="btn" data-act="copy-ext-dir"${raw(extensionDir ? '' : ' disabled')}>Copiar</button></div>
+          <span class="muted" style="font-size:12px">Luego recarga esta página. Cuando el conector cambie, aquí aparece «Recargar extensión» (no hace falta volver a instalarla).</span>
+          ${link.ext.present ? html`<div><button class="btn btn-s" data-act="ext-reload">${icon('refresh')}Recargar extensión</button></div>` : ''}</div>
+        <div class="box"><strong>Cómo se usa</strong>
+          <ul style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px">
+            <li>«Actualizar armado» conecta solo cada tienda que haga falta.</li>
+            <li>«Conectar» abre la tienda en una pestaña en segundo plano (o usa una que ya tengas abierta).</li>
+            <li>«Verificar» descarga la portada de la tienda con tu sesión y dice si hay CAPTCHA, bloqueo o sesión cerrada.</li>
+            <li>«Ver pestaña» te lleva a ella para iniciar sesión o resolver una verificación; al recargarla se reconecta sola.</li>
+            <li>Para agregar un producto desde Amazon, pulsa el ícono de la extensión en su ficha.</li>
+          </ul>
+          <span class="muted" style="font-size:12px">Para leer Amazon USA, cambia «Entregar en» a Miami ${dests['us-mia'].place} dentro de Amazon: la extensión lo detecta al recargar.</span></div>
       </div>
-      <div class="flex" style="gap:8px 24px;font-size:13px;padding-top:12px;border-top:1px solid var(--line-2)">
-        ${link.amazonAlive() ? html`<span><span class="dot" style="background:var(--dot-ok);margin-right:6px"></span>Amazon conectado · ${link.amazon.loggedIn ? 'sesión iniciada' : 'sin sesión iniciada'} · entrega en <strong>${link.amazon.deliverTo}</strong></span>` : html`<span><span class="dot" style="background:var(--line-strong);margin-right:6px"></span>Amazon sin conectar · <button class="btn-link" data-act="open-amazon">Abrir Amazon</button></span>`}
-        <span class="muted">Para leer Amazon USA, cambia «Entregar en» a Miami ${dests['us-mia'].place} dentro de Amazon.</span>
-        <span class="muted">Tiendas conectadas ahora: ${[...link.tabs.entries()].filter(([o]) => link.tabAlive(o)).map(([o]) => new URL(o).hostname.replace(/^www\./, '')).join(', ') || 'ninguna'}</span>
-        <span class="muted">Versión del conector: ${link.appConnectorVersion || '…'}${link.amazon.version ? ` · instalado: ${link.amazon.version}` : ''}</span>
+      <div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--line-2)">
+        <div class="row" style="align-items:center"><h3 style="margin:0;font-size:15px">Conexiones por tienda</h3><span class="muted" style="font-size:12px">Versión del conector: ${link.appConnectorVersion || '…'}</span></div>
+        ${connectionsList(env, originsOfState(st, env))}
       </div>
-      <div><button class="btn btn-p btn-s" data-act="connector-ok">Listo, ya lo instalé</button></div></section>`,
+      <details class="box"><summary><strong>Alternativa: marcador del navegador</strong> <span class="muted" style="font-size:12px">(sin extensión, p. ej. Android; más frágil: se pierde al recargar la tienda o el armador)</span></summary>
+        ${link.outdated() && !link.ext.present ? html`<div class="banner" role="alert">${icon('warn')}<span><strong>El marcador instalado está desactualizado.</strong> La lectura de pedidos queda bloqueada hasta que lo reinstales. Bórralo de la barra y arrastra el nuevo.</span></div>` : ''}
+        <div class="dest-grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:10px">
+          <div class="box"><strong>Escritorio (Chrome en Windows)</strong>
+            <ol style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px"><li>Muestra la barra de marcadores (Ctrl+Mayús+B).</li><li>Arrastra este botón a la barra (si ya tenías uno, reemplázalo).</li><li>En Amazon o en cada tienda, pulsa el marcador.</li></ol>
+            ${connectorHref ? html`<a class="bookmarklet" href="${connectorHref}" draggable="true" data-act="bookmarklet-click">+ Armador PC</a>` : html`<span class="muted">Preparando el marcador…</span>`}
+            <span class="muted" style="font-size:12px">Arrastra, no hagas clic. ¿No puedes arrastrar? <button class="btn-link" data-act="copy-code" data-which="full">Copiar código</button> y pégalo como URL de un marcador nuevo.</span></div>
+          <div class="box"><strong>Celular Android (Chrome)</strong>
+            <ol style="margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px"><li>Copia el código corto (solo funciona con el armador abierto por https, p. ej. Tailscale).</li><li>Guarda un favorito con el nombre «pcb» y pega el código como dirección.</li><li>Abre amazon.com en Chrome (no en la app de Amazon) y activa «Sitio para computadoras».</li><li>Escribe «pcb» en la barra y toca el favorito.</li></ol>
+            <div class="flex" style="flex-wrap:nowrap"><input class="input sm num" readonly value="${loaderHref ? loaderHref.slice(0, 60) + '…' : ''}" aria-label="Código corto del marcador"><button type="button" class="btn" data-act="copy-code" data-which="short">Copiar</button></div>
+            <span class="muted" style="font-size:12px">Si se abre la app de Amazon: Ajustes de Android → Apps → Amazon Shopping → Abrir de forma predeterminada → desactiva «Abrir vínculos compatibles».</span></div>
+        </div>
+        <div style="margin-top:10px"><button class="btn btn-s" data-act="connector-ok">Listo, ya instalé el marcador</button></div>
+      </details></section>`,
     apariencia: html`<section id="apariencia" class="card pad form-row"><div style="flex:1 1 100%"><h2>Apariencia</h2><p class="muted" style="margin:4px 0 0;font-size:13px">Se guarda en este navegador; el celular puede tener otra.</p></div>
       <div class="fld">Tema${seg('Tema', [['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Oscuro']], prefsGet().theme, 'theme')}</div>
       <div class="fld">Densidad de las listas${seg('Densidad', [['comfortable', 'Cómoda'], ['compact', 'Compacta']], prefsGet().density, 'density')}</div>

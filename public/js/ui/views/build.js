@@ -1,7 +1,7 @@
 // @ts-check
 // Armado: resumen y costos (aside), vista general por categorías, compatibilidad y compra, y las piezas elegidas.
 import { html, raw } from '../dom.js';
-import { icon, chip, starsView, starPicker, thumb, statusChip, storeName, destShort, readChip, taxNote, partialMark, empty } from '../components.js';
+import { icon, chip, starsView, starPicker, thumb, statusChip, storeName, storeLabel, destShort, readChip, taxNote, partialMark, empty, storesAccordion } from '../components.js';
 import { usd, n2, cop, ago, intCO, signed } from '../format.js';
 import { ui } from '../ui.js';
 import * as store from '../../state/store.js';
@@ -74,7 +74,7 @@ export function buildView() {
     </section>
     ${t.byStore.length ? html`<section class="card pad stack" style="gap:10px">
       <div class="lbl">Por tienda de compra</div>
-      ${t.byStore.map((g) => html`<div class="stack" style="gap:4px"><div class="row"><span><strong style="font-weight:600">${storeName(env, g.store)}</strong> <span class="muted" style="font-size:12px">${destShort(env, g.dest)} · ${g.n} pedido${g.n === 1 ? '' : 's'}</span></span><span class="num">${n2(g.total)}${g.partial ? '*' : ''}</span></div><div class="bar"><div style="width:${Math.round(g.pct * 100)}%"></div></div></div>`)}
+      ${t.byStore.map((g) => html`<div class="stack" style="gap:4px"><div class="row"><span><strong style="font-weight:600">${storeLabel(env, g.store)}</strong> <span class="muted" style="font-size:12px">${destShort(env, g.dest)} · ${g.n} pedido${g.n === 1 ? '' : 's'}</span></span><span class="num">${n2(g.total)}${g.partial ? '*' : ''}</span></div><div class="bar"><div style="width:${Math.round(g.pct * 100)}%"></div></div></div>`)}
       ${t.mixedDest ? html`<div style="font-size:12px" class="muted">Destinos distintos: el total en Miami no incluye el casillero a Colombia.</div>` : ''}
     </section>` : ''}
     <section class="card pad stack" style="gap:10px">
@@ -186,15 +186,15 @@ export function chosenCard(st, env, cand) {
         ${pr.row ? html`<div class="muted" style="font-size:12px">${pr.row.offer.fetchedAt ? `Leído ${ago(pr.row.offer.fetchedAt)}` : 'Escrito a mano'} · ${cost?.dest === 'co' ? 'cargos' : 'sales tax'} ${taxNote(cost, env)}${pr.mixedDest ? ' · destinos distintos' : ''}</div>` : ''}
       </div>
     </div>
-    ${rows.length > 1 ? html`<div style="padding:0 20px 16px" class="tbl-wrap"><table aria-label="Tiendas de ${shortTitle(p.title, 40)}">
+    ${rows.length ? html`<div style="padding:0 20px 16px">${storesAccordion(env, rows, { body: html`<div class="tbl-wrap" style="margin-top:8px"><table aria-label="Tiendas de ${shortTitle(p.title, 40)}">
       <thead><tr><th>Tienda</th><th>Destino</th><th class="r">Total en destino</th><th class="r">Puesto en CO</th><th>Tendencia</th><th>Lectura</th></tr></thead>
       <tbody>${rows.map((r) => { const tr = trend(r.offer); return html`<tr${raw(pr.row?.offer.id === r.offer.id ? ' class="sel"' : '')}>
-        <td class="mid"><strong>${storeName(env, r.offer.store)}</strong> ${r.lowest ? chip('Más bajo', 'ok', { size: 'sm' }) : ''}</td>
+        <td class="mid"><strong>${storeLabel(env, r.offer.store)}</strong> ${r.lowest ? chip('Más bajo', 'ok', { size: 'sm' }) : ''}</td>
         <td class="mid">${destShort(env, r.cost.dest)}</td>
         <td class="r num mid">${r.cost.total == null ? html`<span class="src">sin dato</span>` : n2(r.cost.total)}${partialMark(r.cost)}${r.cost.original ? html` <span class="muted" style="font-size:11px">COP ${intCO(r.cost.original.total)}</span>` : ''}</td>
         <td class="r num mid">${r.cost.landedCO?.total == null ? '—' : n2(r.cost.landedCO.total)}${r.cost.landedCO?.partial && !r.cost.landedCO.inCO ? '*' : ''}</td>
         <td class="num mid" style="color:${!tr || !tr.diff ? 'var(--muted)' : tr.diff < 0 ? 'var(--ok)' : 'var(--err)'}">${!tr ? '—' : !tr.diff ? '=' : `${tr.diff < 0 ? '▼' : '▲'} ${n2(Math.abs(tr.diff))}`}</td>
-        <td class="mid">${readChip(r.offer, env, refresh.offerState(r.offer.id))}</td></tr>`; })}</tbody></table></div>` : ''}
+        <td class="mid">${readChip(r.offer, env, refresh.offerState(r.offer.id))}</td></tr>`; })}</tbody></table></div>` })}</div>` : ''}
   </div>`;
 }
 export { signed };

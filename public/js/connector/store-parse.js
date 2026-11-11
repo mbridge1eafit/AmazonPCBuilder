@@ -80,31 +80,85 @@ function stOffer(product, fallbackCurrency) {
 const stMeta = (html, re) => { const m = String(html).match(re); return m ? stDecode(m[1] ?? m[2]) : null; };
 const stAttr = (name, attr = 'content') => new RegExp(`<[^>]*(?:itemprop|property|name)=["']${name}["'][^>]*${attr}=["']([^"']+)["']|<[^>]*${attr}=["']([^"']+)["'][^>]*(?:itemprop|property|name)=["']${name}["']`, 'i');
 
-// Newegg sin JSON-LD de producto: el estado embebido trae "FinalPrice" de muchos artículos
-// (relacionados, combos), así que se toma el del objeto cuyo "Item" es el de la ficha
-// (N82E16820147861 en la URL canónica → "20-147-861"; 9SIA… se usa tal cual).
+// JSON de un <script> de estado embebido: desde donde termina `start` hasta su </script>.
+function stScriptJson(html, start) {
+  const s = String(html);
+  const m = start.exec(s);
+  if (!m) return null;
+  const from = m.index + m[0].length;
+  const end = s.indexOf('</script>', from);
+  try { return JSON.parse(s.slice(from, end < 0 ? undefined : end).trim().replace(/;\s*$/, '')); } catch { return null; }
+}
+const stNum = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+
+// Newegg (2026): sin JSON-LD de producto; `window.__initialState__.ItemDetail` es el artículo de la caja de
+// compra (puede ser un vendedor 9SIA… aunque la URL sea N82E…). FinalPrice ya suma ShippingCharge, así que
+// el precio es UnitCost − InstantRebateAmount.
+function stNeweggState(html) {
+  const d = stScriptJson(html, /window\.__initialState__\s*=\s*/)?.ItemDetail;
+  if (!d || typeof d !== 'object') return null;
+  const unit = stNum(d.UnitCost);
+  const price = unit != null ? Math.round((unit - (stNum(d.InstantRebateAmount) || 0)) * 100) / 100
+    : stNum(d.FinalPrice) != null ? Math.round((d.FinalPrice - (stNum(d.ShippingCharge) || 0)) * 100) / 100 : null;
+  if (!stNum(price)) return null;
+  const list = Math.max(stNum(d.OriginalUnitPrice) || 0, unit || 0);
+  return { price, currency: 'USD', listPrice: list > price ? list : null, inStock: typeof d.Instock === 'boolean' ? d.Instock : null, title: stClean(d.Description?.Title) };
+}
+
+// Newegg, respaldo sin estado completo: el "FinalPrice" del objeto cuyo "Item" es el de la ficha
+// (N82E16820147861 en la URL canónica → "20-147-861"; 9SIA… se usa tal cual). Nunca el primero suelto:
+// suele ser de un patrocinado o relacionado.
 function stNeweggPrice(html) {
   const url = stMeta(html, /<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)/i) || stMeta(html, stAttr('og:url')) || '';
   const m = url.match(/\/p\/(?:N82E168(\d{2})(\d{3})(\d{3}[A-Z]?)|(9SI[A-Z0-9]+))/i);
-  if (!m) return stMeta(html, /"FinalPrice"\s*:\s*([\d.]+)/);
+  if (!m) return null;
   const item = (m[4] || `${m[1]}-${m[2]}-${m[3]}`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return stMeta(html, new RegExp(`"Item"\\s*:\\s*"${item}"[^{}]{0,600}?"FinalPrice"\\s*:\\s*([\\d.]+)`, 'i'));
+}
+
+// Walmart (2026): sin JSON-LD de producto; el precio está en __NEXT_DATA__.
+function stWalmartState(html) {
+  const p = stScriptJson(html, /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>/i)?.props?.pageProps?.initialData?.data?.product;
+  const price = stNum(p?.priceInfo?.currentPrice?.price);
+  if (price == null) return null;
+  const was = stNum(p.priceInfo.wasPrice?.price);
+  const st = String(p.availabilityStatus || '');
+  return { price, currency: 'USD', listPrice: was > price ? was : null, inStock: /^IN_STOCK$/i.test(st) ? true : /OUT_OF_STOCK/i.test(st) ? false : null, title: stClean(p.name) };
+}
+
+// Target (2026): la ficha descargada no trae el precio; su propia página lo pide después a la API redsky con la
+// clave pública que viene en la configuración de la página. TCIN de /-/A-1011747449; tienda de precios 3991 (online).
+export function targetPriceUrl(html, pageUrl) {
+  const key = (String(html).match(/\\?"apiKey\\?"\s*:\s*\\?"([0-9a-f]{32,64})\\?"/i) || [])[1];
+  const tcin = (String(pageUrl).match(/\/A-(\d{5,12})(?:[/?#]|$)/) || [])[1];
+  if (!key || !tcin) return null;
+  return `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=${key}&tcin=${tcin}&pricing_store_id=3991&channel=WEB`;
+}
+// Respuesta de pdp_client_v1 → { price, currency, title, inStock, listPrice? } (price null si no viene).
+export function readTargetApi(json) {
+  const p = json?.data?.product;
+  const pr = p?.price || {};
+  const price = stNum(pr.current_retail) ?? stNum(pr.current_retail_min) ?? storePriceNumber(pr.formatted_current_price);
+  const reg = stNum(pr.reg_retail) ?? stNum(pr.reg_retail_min);
+  const out = { price: price ?? null, currency: 'USD', title: stClean(p?.item?.product_description?.title).slice(0, 200), inStock: null };
+  if (price != null && reg > price) out.listPrice = reg;
+  return out;
 }
 
 // Páginas de verificación (Cloudflare, Akamai, captcha) en lugar de la ficha.
 export function storeBlocked(html) {
   const t = String(html).slice(0, 20000);
-  return /<title>\s*(Just a moment|Attention Required|Access Denied|Are you a human|Security check)/i.test(t)
+  return /<title>\s*(Just a moment|Un momento|Attention Required|Access Denied|Acceso denegado|Are you a human|Robot or human|Security check)/i.test(t)
     || /cf-chl-|captcha-delivery|px-captcha|account-verification|g-recaptcha/i.test(t) && !/application\/ld\+json/i.test(t);
 }
 
-// Precio de la ficha de una tienda: JSON-LD → microdatos/meta → patrones propios de cada tienda.
+// Precio de la ficha de una tienda: estado embebido propio (Newegg, Walmart) → JSON-LD → microdatos/meta →
+// patrones propios de cada tienda.
 export function readStorePrice(html, key) {
   const store = STORES[key] || { currency: 'USD' };
   const cur = store.currency;
-  const products = stProducts(html);
-  let hit = null;
-  for (const p of products) { hit = stOffer(p, cur); if (hit) { hit.title = stClean(p.name); break; } }
+  let hit = key === 'newegg' ? stNeweggState(html) : key === 'walmart' ? stWalmartState(html) : null;
+  if (!hit) for (const p of stProducts(html)) { hit = stOffer(p, cur); if (hit) { hit.title = stClean(p.name); break; } }
   if (!hit) {
     const currency = /^COP$/i.test(stMeta(html, stAttr('(?:product:price:currency|og:price:currency|priceCurrency)')) || '') ? 'COP' : cur;
     const raw = stMeta(html, stAttr('(?:price|product:price:amount|og:price:amount)'))
@@ -117,10 +171,13 @@ export function readStorePrice(html, key) {
   }
   const title = hit?.title || stClean(stMeta(html, stAttr('og:title')) || stMeta(html, /<title[^>]*>([^<]*)/i) || '');
   const availability = String(hit?.availability || '').replace(/^https?:\/\/schema\.org\//i, '');
-  return {
+  const out = {
     price: hit?.price ?? null,
     currency: hit?.currency ?? cur,
     title: title.slice(0, 200),
-    inStock: /InStock|LimitedAvailability|OnlineOnly|PreOrder/i.test(availability) ? true : /OutOfStock|SoldOut|Discontinued/i.test(availability) ? false : null,
+    inStock: typeof hit?.inStock === 'boolean' ? hit.inStock
+      : /InStock|LimitedAvailability|OnlineOnly|PreOrder/i.test(availability) ? true : /OutOfStock|SoldOut|Discontinued/i.test(availability) ? false : null,
   };
+  if (hit?.listPrice != null) out.listPrice = hit.listPrice;
+  return out;
 }

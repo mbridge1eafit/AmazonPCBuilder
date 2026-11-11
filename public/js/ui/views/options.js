@@ -2,7 +2,7 @@
 // Opciones de una categoría (hasta 150+): agregar, filtros facetados con conteos, búsqueda, orden (incluido valor por
 // dinero), filtros activos, marcar para comparar, descartar y recuperar. Se pintan por tandas para listas largas.
 import { html, raw } from '../dom.js';
-import { icon, chip, starsView, thumb, storeName, destShort, partialMark } from '../components.js';
+import { icon, chip, starsView, thumb, storeName, storeLabel, amazonUrl, amazonLink, destShort, partialMark, storesAccordion } from '../components.js';
 import { n2, usd, signed, intCO } from '../format.js';
 import { ui, on, onChange, onInput, rerender } from '../ui.js';
 import * as store from '../../state/store.js';
@@ -119,6 +119,7 @@ export function optionsView(cat) {
     const sortVal = sortF ? featureValue(sortF, it.view, cat) : null;
     const nStores = it.pr.rows.filter((r) => r.cost.total != null).length;
     const busy = refresh.productProgress(p.id);
+    const amzUrl = amazonUrl(p, env);
     return html`<div class="optgrid ${cand.selected ? 'sel' : ''}" data-key="opt-${cand.id}">
       <input type="checkbox" aria-label="Marcar para comparar" data-act="mark" data-cand="${cand.id}"${raw(marked ? ' checked' : '')}>
       <div style="display:flex;gap:12px;min-width:0">${thumb(p, 'sm')}
@@ -132,9 +133,10 @@ export function optionsView(cat) {
             ${cost?.overThreshold ? chip(`≥ US$${th}`, 'warn') : ''}
             ${chip(`${nStores} de ${it.pr.rows.length} tienda${it.pr.rows.length === 1 ? '' : 's'}`)}
             ${busy && (busy.running || busy.waiting) ? chip(busy.running ? 'Leyendo…' : 'En espera', busy.running ? 'acc' : '', { ico: busy.running ? 'refresh' : 'clock' }) : ''}
+            ${amzUrl ? amazonLink(amzUrl, { label: 'Amazon', size: 'btn-s' }) : ''}
             ${p.rating ? html`<span class="muted" style="font-size:12px">★ ${String(p.rating).replace('.', ',')} (${intCO(p.reviews || 0)})</span>` : ''}
           </div></div></div>
-      <div class="r"><div class="num" style="font-weight:600">${it.total == null ? 'sin precio' : usd(it.total)}${partialMark(cost)}</div><div style="font-size:11px" class="muted">${it.row ? `${storeName(env, it.row.offer.store)} · ${destShort(env, cost.dest)}${it.pr.suggested ? ' · sugerida' : ''}` : 'sin tiendas'}${cost?.original ? ` · COP ${intCO(cost.original.total)}` : ''}</div></div>
+      <div class="r"><div class="num" style="font-weight:600">${it.total == null ? 'sin precio' : usd(it.total)}${partialMark(cost)}</div><div style="font-size:11px" class="muted">${it.row ? html`${storeLabel(env, it.row.offer.store)} · ${destShort(env, cost.dest)}${it.pr.suggested ? ' · sugerida' : ''}` : 'sin tiendas'}${cost?.original ? ` · COP ${intCO(cost.original.total)}` : ''}</div></div>
       <div class="r c-value">${metric ? html`<div class="num" style="font-weight:600">${it.value == null ? '—' : n2(it.value)}</div>${it.value != null && bestValue ? html`<div class="valbar"><div style="width:${Math.round((bestValue / it.value) * 100)}%"></div></div>` : ''}` : '—'}</div>
       <div class="num r c-diff" style="font-weight:600;color:${diff == null ? 'var(--muted)' : diff < 0 ? 'var(--ok)' : diff > 0 ? 'var(--err)' : 'var(--muted)'}">${cand.selected ? 'elegido' : diff == null ? '—' : signed(diff)}</div>
       <div class="actions">
@@ -143,7 +145,8 @@ export function optionsView(cat) {
         : html`<button class="btn btn-s btn-p" data-act="select" data-cand="${cand.id}">${c.multi ? 'Agregar' : 'Cambiar a este'}</button>`}
         <button class="btn btn-s btn-g" aria-label="Actualizar esta opción" title="Actualizar esta opción" data-act="refresh-product" data-product="${p.id}">${icon('refresh')}</button>
         ${cand.discarded ? '' : html`<button class="btn btn-s btn-g" aria-label="Descartar sin borrar" title="Descartar sin borrar" data-act="discard" data-cand="${cand.id}">${icon('hide')}</button>`}
-      </div></div>`;
+      </div>
+      ${storesAccordion(env, it.pr.rows, { selectedId: it.pr.suggested ? null : it.row?.offer.id })}</div>`;
   });
 
   return html`<header style="background:var(--surface);border-bottom:1px solid var(--line)"><div class="wrap" style="padding-top:12px;padding-bottom:12px;gap:10px">
